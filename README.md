@@ -6,6 +6,7 @@ Objectives:
 - [ ] Service Installation
 - [ ] SSH Monitor (AntiBrute)
 - [ ] Web Monitor (AntiRecon + AntiBrute)
+- [ ] Database Monitor (Antibrute)
 - [ ] eBPF Monitoring
     - [ ] Network Monitor (AntiRecon)
     - [ ] Command Execution (with block for definite users)
