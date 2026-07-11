@@ -3,12 +3,15 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"open-defender/pkg/config"
+	"open-defender/pkg/installer"
 	"path"
 )
 
 type App interface {
 	Initialize() error
+	Install() error
 	Run() error
 }
 
@@ -17,6 +20,7 @@ type app struct {
 	cancel     context.CancelFunc
 	cfg        *config.Config
 	configPath string
+	installer  installer.Installer
 }
 
 func New() App {
@@ -26,6 +30,7 @@ func New() App {
 		cancel:     cancel,
 		configPath: path.Join("/", "etc", "open-defender", "config.yaml"),
 		cfg:        &config.Config{},
+		installer:  installer.New(),
 	}
 }
 
@@ -35,6 +40,17 @@ func (a *app) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("app.Initialize() -> %w", err)
 	}
+	a.cfg = cfg
+	return nil
+}
+
+func (a *app) Install() error {
+	if err := a.installer.Install(); err != nil {
+		return fmt.Errorf("app.Install() -> %w", err)
+	}
+
+	log.Printf("%s installed and started, check it with: systemctl status %s", a.installer.ServiceName(), a.installer.ServiceName())
+
 	return nil
 }
 

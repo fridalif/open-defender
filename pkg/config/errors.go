@@ -10,4 +10,5 @@ var (
 	ErrReadConfig               = errors.New("failed to read config file")
 	ErrParseConfig              = errors.New("failed to parse config file")
 	ErrGettingNetworkInterfaces = errors.New("failed to get network interfaces")
+	ErrUnknownArgument          = errors.New("unknown argument")
 )
