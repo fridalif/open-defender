@@ -3,7 +3,7 @@
 Open Source Linux Servers complex tool for monitoring and security audit
 
 Objectives:
-- [ ] Service Installation
+- [x] Service Installation
 - [ ] SSH Monitor (AntiBrute)
 - [ ] Web Monitor (AntiRecon + AntiBrute)
 - [ ] Database Monitor (Antibrute)
