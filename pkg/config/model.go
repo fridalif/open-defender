@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 type BaseFields struct {
 	Mode          string `yaml:"mode"`      // disabled, logger, blocker
 	Engine        string `yaml:"engine"`    // syslog, journal, docker
@@ -8,7 +10,7 @@ type BaseFields struct {
 	Tries         uint64 `yaml:"tries"`
 	WindowSeconds uint64 `yaml:"window_seconds"`
 	BanSeconds    uint64 `yaml:"ban_seconds"`
-	Pattern       uint64 `yaml:"pattern"`
+	Pattern       string `yaml:"pattern"`
 }
 
 type ResourceFields struct {
@@ -47,4 +49,27 @@ type Config struct {
 	WebBruteMonitor WebBruteMonitorConfig `yaml:"web_brute_monitor"`
 	DatabaseMonitor DatabaseMonitorConfig `yaml:"database_monitor"`
 	ResourceMonitor ResourceMonitorConfig `yaml:"resource_monitor"`
+}
+
+const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
+
+func LoadConfig() *Config {
+	config := &Config{
+		SSHMonitor: SSHMonitorConfig{
+			BaseFields: BaseFields{
+				Mode:          "logger",
+				Engine:        "syslog",
+				LogPath:       "/var/log/auth.log",
+				UnitName:      "",
+				Tries:         5,
+				WindowSeconds: 300,
+				BanSeconds:    900,
+				Pattern:       fmt.Sprintf(`Failed password for (?:invalid user )?\S+ from (%s)`, ipPattern),
+			},
+		},
+		WebReconMonitor: WebReconMonitorConfig{},
+		WebBruteMonitor: WebBruteMonitorConfig{},
+		DatabaseMonitor: DatabaseMonitorConfig{},
+		ResourceMonitor: ResourceMonitorConfig{},
+	}
 }
