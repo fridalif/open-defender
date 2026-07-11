@@ -26,19 +26,19 @@ type ResourceFields struct {
 }
 
 type SSHMonitorConfig struct {
-	BaseFields
+	BaseFields `yaml:",inline"`
 }
 
 type WebReconMonitorConfig struct {
-	BaseFields
+	BaseFields `yaml:",inline"`
 }
 
 type WebBruteMonitorConfig struct {
-	BaseFields
+	BaseFields `yaml:",inline"`
 }
 
 type DatabaseMonitorConfig struct {
-	BaseFields
+	BaseFields `yaml:",inline"`
 }
 
 type ResourceMonitorConfig struct {
