@@ -1,6 +1,13 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+)
 
 type BaseFields struct {
 	Mode          string `yaml:"mode"`      // disabled, logger, blocker
@@ -44,32 +51,156 @@ type ResourceMonitorConfig struct {
 }
 
 type Config struct {
-	SSHMonitor      SSHMonitorConfig      `yaml:"ssh_monitor"`
-	WebReconMonitor WebReconMonitorConfig `yaml:"web_recon_monitor"`
-	WebBruteMonitor WebBruteMonitorConfig `yaml:"web_brute_monitor"`
-	DatabaseMonitor DatabaseMonitorConfig `yaml:"database_monitor"`
-	ResourceMonitor ResourceMonitorConfig `yaml:"resource_monitor"`
+	IPWhiteList        []string              `yaml:"ip_whitelist"`
+	BlockedIPsDatabase string                `yaml:"blocked_ips_database"`
+	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor"`
+	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor"`
+	WebBruteMonitor    WebBruteMonitorConfig `yaml:"web_brute_monitor"`
+	DatabaseMonitor    DatabaseMonitorConfig `yaml:"database_monitor"`
+	ResourceMonitor    ResourceMonitorConfig `yaml:"resource_monitor"`
 }
 
 const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
 
-func LoadConfig() *Config {
+func New() *Config {
 	config := &Config{
+		BlockedIPsDatabase: "/var/open-defender/blocked.db",
 		SSHMonitor: SSHMonitorConfig{
 			BaseFields: BaseFields{
 				Mode:          "logger",
 				Engine:        "syslog",
 				LogPath:       "/var/log/auth.log",
-				UnitName:      "",
+				UnitName:      "sshd",
 				Tries:         5,
 				WindowSeconds: 300,
 				BanSeconds:    900,
 				Pattern:       fmt.Sprintf(`Failed password for (?:invalid user )?\S+ from (%s)`, ipPattern),
 			},
 		},
-		WebReconMonitor: WebReconMonitorConfig{},
-		WebBruteMonitor: WebBruteMonitorConfig{},
-		DatabaseMonitor: DatabaseMonitorConfig{},
-		ResourceMonitor: ResourceMonitorConfig{},
+		WebReconMonitor: WebReconMonitorConfig{
+			BaseFields: BaseFields{
+				Mode:          "disabled",
+				Engine:        "syslog",
+				LogPath:       "/var/log/nginx/access.log",
+				UnitName:      "nginx",
+				Tries:         10,
+				WindowSeconds: 60,
+				BanSeconds:    600,
+				Pattern:       fmt.Sprintf(`(%s) - - \[.*?\] "(?:GET|POST|HEAD) \S+ HTTP/\d\.\d" 40[34]`, ipPattern),
+			},
+		},
+		WebBruteMonitor: WebBruteMonitorConfig{
+			BaseFields: BaseFields{
+				Mode:          "disabled",
+				Engine:        "syslog",
+				LogPath:       "/var/log/nginx/access.log",
+				UnitName:      "nginx",
+				Tries:         5,
+				WindowSeconds: 120,
+				BanSeconds:    900,
+				Pattern:       fmt.Sprintf(`(%s) - - \[.*?\] "POST (?:/login|/wp-login\.php|/admin) HTTP/\d\.\d" 40[13]`, ipPattern),
+			},
+		},
+		DatabaseMonitor: DatabaseMonitorConfig{
+			BaseFields: BaseFields{
+				Mode:          "disabled",
+				Engine:        "syslog",
+				LogPath:       "/var/log/postgresql/postgresql.log",
+				UnitName:      "postgresql",
+				Tries:         5,
+				WindowSeconds: 300,
+				BanSeconds:    900,
+				Pattern:       fmt.Sprintf(`host=(%s).*FATAL:\s+password authentication failed for user`, ipPattern),
+			},
+		},
+		ResourceMonitor: ResourceMonitorConfig{
+			Enabled: true,
+			CpuUsagePersentage: ResourceFields{
+				Warning: 60,
+				Alert:   90,
+			},
+			RamUsagePersentage: ResourceFields{
+				Warning: 60,
+				Alert:   90,
+			},
+			TrafficUsageMBs: ResourceFields{
+				Warning: 0,
+				Alert:   0,
+			},
+			DiskUsageIOps: ResourceFields{
+				Warning: 0,
+				Alert:   0,
+			},
+			OutputTopSnapshotDir: "/var/log/open-defender/",
+		},
 	}
+	return config
+}
+
+func (c *Config) GetLocalIps() ([]string, error) {
+	var ips []string
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, addr := range addrs {
+		var ip net.IP
+
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+
+		if ip == nil {
+			continue
+		}
+
+		ips = append(ips, ip.String())
+	}
+
+	return ips, nil
+}
+
+func (c *Config) SaveConfig(path string) error {
+	dir := filepath.Dir(path)
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("failed to marshal default config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write default config: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Config) LoadConfig(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := c.SaveConfig(path); err != nil {
+			return fmt.Errorf("failed to create default config: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to stat config file: %w", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	if err := yaml.Unmarshal(data, c); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return nil
 }
