@@ -186,6 +186,12 @@ func (c *Config) SaveConfig(path string) error {
 
 func (c *Config) LoadConfig(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		ips, err := c.GetLocalIps()
+		if err != nil {
+			return fmt.Errorf("config.LoadConfig() -> %w", err)
+		}
+		c.IPWhiteList = ips
+
 		if err := c.SaveConfig(path); err != nil {
 			return err
 		}
@@ -200,6 +206,11 @@ func (c *Config) LoadConfig(path string) error {
 
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
+	}
+
+	// for easy update config after new program release
+	if err := c.SaveConfig(path); err != nil {
+		return err
 	}
 
 	return nil
