@@ -1,33 +1,28 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"open-defender/pkg/config"
 	"open-defender/pkg/installer"
+	"open-defender/pkg/monitor"
 	"path"
 )
 
 type App interface {
 	Initialize() error
 	Install() error
-	Run() error
+	Run()
 }
 
 type app struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
 	cfg        *config.Config
 	configPath string
 	installer  installer.Installer
 }
 
 func New() App {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &app{
-		ctx:        ctx,
-		cancel:     cancel,
 		configPath: path.Join("/", "etc", "open-defender", "config.yaml"),
 		cfg:        &config.Config{},
 		installer:  installer.New(),
@@ -54,6 +49,7 @@ func (a *app) Install() error {
 	return nil
 }
 
-func (a *app) Run() error {
-	return nil
+func (a *app) Run() {
+	mh := monitor.New(a.cfg)
+	mh.RunMonitoring()
 }

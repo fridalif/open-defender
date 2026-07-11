@@ -39,8 +39,5 @@ func main() {
 		return
 	}
 
-	err = app.Run()
-	if err != nil {
-		log.Fatalln(err)
-	}
+	app.Run()
 }
