@@ -142,7 +142,7 @@ func (c *Config) GetLocalIps() ([]string, error) {
 
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("config.GetLocalIps() -> %w: %v", ErrGettingNetworkInterfaces, err)
 	}
 
 	for _, addr := range addrs {
@@ -169,16 +169,16 @@ func (c *Config) SaveConfig(path string) error {
 	dir := filepath.Dir(path)
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+		return fmt.Errorf("config.SaveConfig() -> %w: %v", ErrCreateConfigDir, err)
 	}
 
 	data, err := yaml.Marshal(c)
 	if err != nil {
-		return fmt.Errorf("failed to marshal default config: %w", err)
+		return fmt.Errorf("config.SaveConfig() -> %w: %v", ErrMarshalConfig, err)
 	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write default config: %w", err)
+		return fmt.Errorf("config.SaveConfig() -> %w: %v", ErrWriteConfig, err)
 	}
 
 	return nil
@@ -187,19 +187,19 @@ func (c *Config) SaveConfig(path string) error {
 func (c *Config) LoadConfig(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := c.SaveConfig(path); err != nil {
-			return fmt.Errorf("failed to create default config: %w", err)
+			return err
 		}
 	} else if err != nil {
-		return fmt.Errorf("failed to stat config file: %w", err)
+		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrStatConfig, err)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrReadConfig, err)
 	}
 
 	if err := yaml.Unmarshal(data, c); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
 	}
 
 	return nil
