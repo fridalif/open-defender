@@ -24,7 +24,7 @@ func New() App {
 	return &app{
 		ctx:        ctx,
 		cancel:     cancel,
-		configPath: path.Join("", "etc", "open-defender", "config.yaml"),
+		configPath: path.Join("/", "etc", "open-defender", "config.yaml"),
 		cfg:        &config.Config{},
 	}
 }
