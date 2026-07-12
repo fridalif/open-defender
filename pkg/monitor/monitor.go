@@ -3,7 +3,9 @@ package monitor
 import (
 	"context"
 	"open-defender/pkg/config"
+	"regexp"
 	"sync"
+	"time"
 )
 
 type MonitorHub interface {
@@ -53,17 +55,60 @@ func (mh *monitorHub) RunMonitoring() {
 	mh.wg.Wait()
 }
 
+func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
+	matches := re.FindStringSubmatch(message)
+	if matches == nil || len(matches) == 0 {
+		return "", false
+	}
+	for i, name := range re.SubexpNames() {
+		if name == "ip" {
+			return matches[i], true
+		}
+	}
+	return "", false
+
+}
+
+func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap *sync.Map) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			time.Sleep(time.Duration(seconds))
+			clearingMap.Clear()
+		}
+	}
+}
+
 func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	outputChan := make(chan string, 1000)
+	ipAttemptsMap := sync.Map{}
+	re := regexp.MustCompile(bm.Pattern)
 	switch bm.Engine {
 	case "docker":
-		connectToDocker(mh.ctx, bm.UnitName, outputChan)
+		go connectToDocker(mh.ctx, mh.cancel, bm.UnitName, outputChan)
 	case "journal":
-		connectToJournal(mh.ctx, bm.UnitName, outputChan)
+		go connectToJournal(mh.ctx, mh.cancel, bm.UnitName, outputChan)
 	case "syslog":
-		connectToSyslog(mh.ctx, bm.LogPath, outputChan)
+		go connectToSyslog(mh.ctx, mh.cancel, bm.LogPath, outputChan)
 	default:
 		return ErrEngineNotFound
+	}
+	for message := range outputChan {
+		ip, found := mh.getIp(re, message)
+		if !found {
+			continue
+		}
+		raw, _ := ipAttemptsMap.LoadOrStore(ip, uint64(0))
+		counter, ok := raw.(uint64)
+		if !ok {
+			continue
+		}
+		counter += uint64(1)
+		if counter >= bm.Tries {
+			///
+		}
 	}
 	return nil
 }

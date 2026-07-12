@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"log"
 	"os"
 	"time"
 
@@ -14,12 +15,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func connectToDocker(ctx context.Context, containerName string, logsChan chan<- string) error {
+func connectToDocker(ctx context.Context, cancel context.CancelFunc, containerName string, logsChan chan<- string) {
 	defer close(logsChan)
+	defer cancel()
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return err
+		log.Printf("monitor.connectToDocker(containerName: %s) -> %v: %v", containerName, ErrCantConnectToDocker, err)
+		return
 	}
 	defer cli.Close()
 
@@ -30,7 +33,8 @@ func connectToDocker(ctx context.Context, containerName string, logsChan chan<- 
 		Tail:       "0",
 	})
 	if err != nil {
-		return err
+		log.Printf("monitor.connectToDocker(containerName: %s) -> %v: %v", containerName, ErrCantReadContainerLogs, err)
+		return
 	}
 	defer reader.Close()
 
@@ -44,43 +48,52 @@ func connectToDocker(ctx context.Context, containerName string, logsChan chan<- 
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case logsChan <- scanner.Text():
 		}
 	}
 
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		log.Printf("monitor.connectToDocker(containerName: %s) -> %v: %v", containerName, ErrCantReadContainerLogs, err)
+	}
 }
 
-func connectToJournal(ctx context.Context, unitName string, logsChan chan<- string) error {
+func connectToJournal(ctx context.Context, cancel context.CancelFunc, unitName string, logsChan chan<- string) {
 	defer close(logsChan)
+	defer cancel()
+
 	j, err := sdjournal.NewJournal()
 	if err != nil {
-		return err
+		log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantConnectToJournal, err)
+		return
 	}
 	defer j.Close()
 
 	if err := j.AddMatch("_SYSTEMD_UNIT=" + unitName); err != nil {
-		return err
+		log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantConnectToJournal, err)
+		return
 	}
 
 	if err := j.SeekTail(); err != nil {
-		return err
+		log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantConnectToJournal, err)
+		return
 	}
 	if _, err := j.Previous(); err != nil {
-		return err
+		log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantConnectToJournal, err)
+		return
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		default:
 		}
 
 		n, err := j.Next()
 		if err != nil {
-			return err
+			log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantReadJournal, err)
+			return
 		}
 
 		if n == 0 {
@@ -90,54 +103,60 @@ func connectToJournal(ctx context.Context, unitName string, logsChan chan<- stri
 
 		entry, err := j.GetEntry()
 		if err != nil {
-			return err
+			log.Printf("monitor.connectToJournal(unitName: %s) -> %v: %v", unitName, ErrCantReadJournal, err)
+			return
 		}
 
 		select {
 		case logsChan <- entry.Fields["MESSAGE"]:
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		}
 	}
 }
 
-func connectToSyslog(ctx context.Context, path string, logsChan chan<- string) error {
+func connectToSyslog(ctx context.Context, cancel context.CancelFunc, path string, logsChan chan<- string) {
 	defer close(logsChan)
+	defer cancel()
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantWatchLogFile, err)
+		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(path); err != nil {
-		return err
+		log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantWatchLogFile, err)
+		return
 	}
 
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantOpenLogFile, err)
+		return
 	}
 	defer file.Close()
 
 	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		return err
+		log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantReadLogFile, err)
+		return
 	}
 
 	reader := bufio.NewReader(file)
 
-	readNewLines := func() error {
+	readNewLines := func() {
 		for {
 			line, err := reader.ReadString('\n')
 			if len(line) > 0 {
 				select {
 				case logsChan <- line:
 				case <-ctx.Done():
-					return ctx.Err()
+					return
 				}
 			}
 			if err != nil {
-				return nil
+				return
 			}
 		}
 	}
@@ -145,35 +164,38 @@ func connectToSyslog(ctx context.Context, path string, logsChan chan<- string) e
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 
 		case event, ok := <-watcher.Events:
 			if !ok {
-				return nil
+				log.Printf("monitor.connectToSyslog(path: %s) -> %v", path, ErrWatcherClosed)
+				return
 			}
 			if event.Has(fsnotify.Write) {
-				if err := readNewLines(); err != nil {
-					return err
-				}
+				readNewLines()
 			}
 			if event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
 				file.Close()
 				newFile, err := os.Open(path)
 				if err != nil {
-					return err
+					log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantOpenLogFile, err)
+					return
 				}
 				file = newFile
 				reader = bufio.NewReader(file)
 				if err := watcher.Add(path); err != nil {
-					return err
+					log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantWatchLogFile, err)
+					return
 				}
 			}
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
-				return nil
+				log.Printf("monitor.connectToSyslog(path: %s) -> %v", path, ErrWatcherClosed)
+				return
 			}
-			return err
+			log.Printf("monitor.connectToSyslog(path: %s) -> %v: %v", path, ErrCantWatchLogFile, err)
+			return
 		}
 	}
 }
