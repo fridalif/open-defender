@@ -57,11 +57,15 @@ func (mh *monitorHub) RunMonitoring() {
 	}
 	for _, mon := range baseMonitors {
 		mh.wg.Go(func() {
-			mh.RunBaseMonitor(mon)
+			if err := mh.RunBaseMonitor(mon); err != nil {
+				log.Println(err.Error())
+			}
 		})
 	}
 	mh.wg.Go(func() {
-		mh.RunResourceMonitor(&mh.cfg.ResourceMonitor)
+		if err := mh.RunResourceMonitor(&mh.cfg.ResourceMonitor); err != nil {
+			log.Println(err.Error())
+		}
 	})
 	mh.wg.Wait()
 }
@@ -117,7 +121,7 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	case "syslog":
 		go connectToSyslog(mh.ctx, mh.cancel, bm.LogPath, outputChan)
 	default:
-		return ErrEngineNotFound
+		return fmt.Errorf("monitor.RunBaseMonitor(engine: %s) -> %w", bm.Engine, ErrEngineNotFound)
 	}
 	for message := range outputChan {
 		ip, found := mh.getIp(re, message)
@@ -241,7 +245,7 @@ func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error
 	for {
 		select {
 		case <-mh.ctx.Done():
-			return mh.ctx.Err()
+			return nil
 
 		case <-ticker.C:
 			if err := mh.checkResourceMetrics(rm); err != nil {
