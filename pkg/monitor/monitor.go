@@ -81,7 +81,7 @@ func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap
 		case <-ctx.Done():
 			return
 		default:
-			time.Sleep(time.Duration(seconds))
+			time.Sleep(time.Duration(seconds) * time.Second)
 			clearingMap.Clear()
 		}
 	}
@@ -135,7 +135,8 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 					}
 				}
 			}
-			mh.alert(journalInfo, fmt.Sprintf("banned ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
+			mh.alert(journalInfo, fmt.Sprintf("found offenders ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
+			counter = 0
 		}
 		ipAttemptsMap.Store(ip, counter)
 	}
@@ -239,7 +240,7 @@ func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error
 
 		case <-ticker.C:
 			if err := mh.checkResourceMetrics(rm); err != nil {
-				fmt.Println(err)
+				log.Println("RunResourceMonitor() -> ", err)
 			}
 		}
 	}
