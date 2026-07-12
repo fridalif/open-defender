@@ -98,8 +98,12 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	}
 	outputChan := make(chan string, 1000)
 	ipAttemptsMap := sync.Map{}
+	re, err := regexp.Compile(bm.Pattern)
 	go mh.clearMaps(mh.ctx, bm.WindowSeconds, &ipAttemptsMap)
-	re := regexp.MustCompile(bm.Pattern)
+	if err != nil {
+		mh.cancel()
+		return fmt.Errorf("monitor.RunBaseMonitor() -> %w: %v", ErrCompileRegexp, err)
+	}
 	switch bm.Engine {
 	case "docker":
 		go connectToDocker(mh.ctx, mh.cancel, bm.UnitName, outputChan)

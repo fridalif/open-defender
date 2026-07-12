@@ -19,4 +19,5 @@ var (
 	ErrCantGetProcesses      = errors.New("cant get processes")
 	ErrCantCreateSnapshotDir = errors.New("cant create snapshot directory")
 	ErrCantWriteSnapshot     = errors.New("cant write snapshot")
+	ErrCompileRegexp         = errors.New("cant compile regexp")
 )

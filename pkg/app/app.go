@@ -39,6 +39,9 @@ func (a *app) Initialize() error {
 	}
 	a.cfg = cfg
 	a.bp, err = banpool.New(cfg)
+	if err != nil {
+		return fmt.Errorf("app.Initialize() -> %w", err)
+	}
 	return nil
 }
 
