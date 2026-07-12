@@ -131,6 +131,7 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 			}
 			mh.alert(journalInfo, fmt.Sprintf("banned ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
 		}
+		ipAttemptsMap.Store(ip, counter)
 	}
 	return nil
 }
