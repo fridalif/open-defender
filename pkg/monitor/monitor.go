@@ -44,6 +44,11 @@ func New(cfg *config.Config, bp banpool.BanPool) MonitorHub {
 
 func (mh *monitorHub) RunMonitoring() {
 	defer mh.cancel()
+
+	if err := mh.bp.RestoreBans(mh.ctx); err != nil {
+		log.Println(err.Error())
+	}
+
 	baseMonitors := []*config.BaseFields{
 		&mh.cfg.SSHMonitor.BaseFields,
 		&mh.cfg.WebBruteMonitor.BaseFields,

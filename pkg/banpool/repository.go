@@ -23,6 +23,7 @@ type Repository interface {
 	Add(ban *Ban) (int64, error)
 	Get(ip string) (*Ban, error)
 	GetBanned() ([]*Ban, error)
+	GetExpired() ([]*Ban, error)
 	Update(ban *Ban) error
 	Delete(id int64) error
 	Close() error
@@ -140,6 +141,34 @@ func (r *repository) Delete(id int64) error {
 	}
 
 	return nil
+}
+
+func (r *repository) GetExpired() ([]*Ban, error) {
+	rows, err := r.db.Query(
+		"SELECT id, ip, banned_at, banned_until FROM bans WHERE banned_until <= ?", time.Now(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("banpool.repository.GetExpired() -> %w: %v", ErrCantGetBannedIPs, err)
+	}
+	defer rows.Close()
+
+	bans := []*Ban{}
+
+	for rows.Next() {
+		ban := &Ban{}
+
+		if err := rows.Scan(&ban.ID, &ban.IP, &ban.BannedAt, &ban.BannedUntil); err != nil {
+			return nil, fmt.Errorf("banpool.repository.GetExpired() -> %w: %v", ErrCantGetBannedIPs, err)
+		}
+
+		bans = append(bans, ban)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("banpool.repository.GetExpired() -> %w: %v", ErrCantGetBannedIPs, err)
+	}
+
+	return bans, nil
 }
 
 func (r *repository) Close() error {

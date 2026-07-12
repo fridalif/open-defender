@@ -13,6 +13,7 @@ import (
 type BanPool interface {
 	BanIP(ctx context.Context, ip string, banSeconds uint64) error
 	UnbanIP(ip string) error
+	RestoreBans(ctx context.Context) error
 }
 
 type banPool struct {
@@ -33,6 +34,43 @@ func New(cfg *config.Config) (BanPool, error) {
 	}, nil
 }
 
+func (bp *banPool) RestoreBans(ctx context.Context) error {
+	bp.mutex.Lock()
+	defer bp.mutex.Unlock()
+
+	expired, err := bp.repository.GetExpired()
+	if err != nil {
+		return fmt.Errorf("banpool.RestoreBans() -> %w", err)
+	}
+
+	for _, ban := range expired {
+		if err := bp.unban(ban.IP); err != nil {
+			log.Println(err.Error())
+		}
+	}
+
+	bans, err := bp.repository.GetBanned()
+	if err != nil {
+		return fmt.Errorf("banpool.RestoreBans() -> %w", err)
+	}
+
+	for _, ban := range bans {
+		if err := bp.firewall.Ban(ban.IP); err != nil {
+			log.Println(err.Error())
+
+			if deleteErr := bp.repository.Delete(ban.ID); deleteErr != nil {
+				log.Println(deleteErr.Error())
+			}
+
+			continue
+		}
+
+		go bp.waitUnban(ctx, ban)
+	}
+
+	return nil
+}
+
 func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) error {
 	bp.mutex.Lock()
 	defer bp.mutex.Unlock()
@@ -51,6 +89,10 @@ func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) erro
 	}
 
 	if current != nil {
+		if err := bp.firewall.Ban(ip); err != nil {
+			return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
+		}
+
 		return bp.extendBan(current, ban.BannedUntil)
 	}
 
