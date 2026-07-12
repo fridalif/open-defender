@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"open-defender/pkg/config"
 	"regexp"
 	"sync"
@@ -12,7 +14,6 @@ type MonitorHub interface {
 	RunMonitoring()
 	RunBaseMonitor(bm *config.BaseFields) error
 	RunResourceMonitor(rm *config.ResourceMonitorConfig) error
-	Log(critLevel int, message string)
 }
 
 type monitorHub struct {
@@ -30,10 +31,6 @@ func New(cfg *config.Config) MonitorHub {
 		cfg:    cfg,
 		wg:     new(sync.WaitGroup),
 	}
-}
-
-func (mh *monitorHub) Log(critLevel int, message string) {
-
 }
 
 func (mh *monitorHub) RunMonitoring() {
@@ -81,7 +78,15 @@ func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap
 	}
 }
 
+func (mh *monitorHub) alert(critLevel int, message string, afterAction func()) {
+	log.Printf("<%d>%s\n", critLevel, message)
+	go afterAction()
+}
+
 func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
+	if bm.Mode == "disabled" {
+		return nil
+	}
 	outputChan := make(chan string, 1000)
 	ipAttemptsMap := sync.Map{}
 	re := regexp.MustCompile(bm.Pattern)
@@ -107,7 +112,11 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 		}
 		counter += uint64(1)
 		if counter >= bm.Tries {
-			///
+			action := func() {}
+			if bm.Mode == "blocker" {
+
+			}
+			mh.alert(journalInfo, fmt.Sprintf("banned ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
 		}
 	}
 	return nil
