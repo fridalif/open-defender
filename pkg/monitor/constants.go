@@ -1,5 +1,7 @@
 package monitor
 
+import "time"
+
 var (
 	journalEmerge  = 0
 	journalAlert   = 1
@@ -9,4 +11,9 @@ var (
 	journalNotice  = 5
 	journalInfo    = 6
 	journalDebug   = 7
+)
+
+var (
+	resourcePollInterval = 5 * time.Second
+	windowPollInterval   = 1 * time.Second
 )

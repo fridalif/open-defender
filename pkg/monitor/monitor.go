@@ -9,6 +9,11 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v3/net"
 )
 
 type MonitorHub interface {
@@ -130,6 +135,105 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	return nil
 }
 
-func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error {
+func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) error {
+	netBefore, err := net.IOCountersWithContext(mh.ctx, false)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetTrafficUsage, err)
+	}
+	diskBefore, err := disk.IOCountersWithContext(mh.ctx)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetDiskUsage, err)
+	}
+
+	cpuPercents, err := cpu.PercentWithContext(mh.ctx, windowPollInterval, false)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetCPUUsage, err)
+	}
+
+	netAfter, err := net.IOCountersWithContext(mh.ctx, false)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetTrafficUsage, err)
+	}
+	diskAfter, err := disk.IOCountersWithContext(mh.ctx)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetDiskUsage, err)
+	}
+
+	v, err := mem.VirtualMemoryWithContext(mh.ctx)
+	if err != nil {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetRAMUsage, err)
+	}
+
+	if len(cpuPercents) == 0 {
+		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: no measurements", ErrCantGetCPUUsage)
+	}
+
+	seconds := windowPollInterval.Seconds()
+
+	cpuPercent := cpuPercents[0]
+	ramPercent := v.UsedPercent
+
+	var trafficMBs float64
+	if len(netBefore) > 0 && len(netAfter) > 0 {
+		rxBytes := netAfter[0].BytesRecv - netBefore[0].BytesRecv
+		txBytes := netAfter[0].BytesSent - netBefore[0].BytesSent
+		trafficMBs = float64(rxBytes+txBytes) / seconds / 1024 / 1024
+	}
+
+	var totalIOps uint64
+	for name, after := range diskAfter {
+		before, ok := diskBefore[name]
+		if !ok {
+			continue
+		}
+		totalIOps += (after.ReadCount - before.ReadCount) + (after.WriteCount - before.WriteCount)
+	}
+	diskIOps := float64(totalIOps) / seconds
+
+	mh.checkLimits("cpu usage", cpuPercent, "%", rm.CpuUsagePersentage, rm.OutputTopSnapshotDir)
+	mh.checkLimits("ram usage", ramPercent, "%", rm.RamUsagePersentage, rm.OutputTopSnapshotDir)
+	mh.checkLimits("traffic usage", trafficMBs, "mb/s", rm.TrafficUsageMBs, rm.OutputTopSnapshotDir)
+	mh.checkLimits("disk usage", diskIOps, "iops", rm.DiskUsageIOps, rm.OutputTopSnapshotDir)
+
 	return nil
+}
+
+func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) {
+	if limits.Alert != 0 && value >= float64(limits.Alert) {
+		message := fmt.Sprintf("%s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
+
+		mh.alert(journalAlert, message, func() {
+			if err := mh.saveSnapshot(snapshotDir); err != nil {
+				log.Println(err.Error())
+			}
+		})
+
+		return
+	}
+
+	if limits.Warning != 0 && value >= float64(limits.Warning) {
+		message := fmt.Sprintf("%s is %.2f%s, warning limit is %d%s", name, value, unit, limits.Warning, unit)
+
+		mh.alert(journalWarning, message, func() {})
+	}
+}
+
+func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error {
+	if !rm.Enabled {
+		return nil
+	}
+
+	ticker := time.NewTicker(resourcePollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-mh.ctx.Done():
+			return mh.ctx.Err()
+
+		case <-ticker.C:
+			if err := mh.checkResourceMetrics(rm); err != nil {
+				fmt.Println(err)
+			}
+		}
+	}
 }
