@@ -4,9 +4,10 @@ Open Source Linux Servers complex tool for monitoring and security audit
 
 Objectives:
 - [x] Service Installation
-- [ ] SSH Monitor (AntiBrute)
-- [ ] Web Monitor (AntiRecon + AntiBrute)
-- [ ] Database Monitor (Antibrute)
+- [x] SSH Monitor (AntiBrute)
+- [x] Web Monitor (AntiRecon + AntiBrute)
+- [x] Database Monitor (Antibrute)
+- [x] Resource Monitor with top'ing proccesses in overloads
 - [ ] eBPF Monitoring
     - [ ] Network Monitor (AntiRecon)
     - [ ] Command Execution (with block for definite users)
@@ -15,7 +16,6 @@ Objectives:
     - [ ] New Services (with block)
     - [ ] New Records in .*rc, .profile and other
 - [ ] ...
-- [ ] Resource Monitor with top'ing proccesses in overloads
 - [ ] Security Audit Mode
     - [ ] Weak Configs
     - [ ] Weak Passwords
