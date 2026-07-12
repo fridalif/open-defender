@@ -53,6 +53,7 @@ func connectToDocker(ctx context.Context, containerName string, logsChan chan<- 
 }
 
 func connectToJournal(ctx context.Context, unitName string, logsChan chan<- string) error {
+	defer close(logsChan)
 	j, err := sdjournal.NewJournal()
 	if err != nil {
 		return err
@@ -101,6 +102,8 @@ func connectToJournal(ctx context.Context, unitName string, logsChan chan<- stri
 }
 
 func connectToSyslog(ctx context.Context, path string, logsChan chan<- string) error {
+	defer close(logsChan)
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err

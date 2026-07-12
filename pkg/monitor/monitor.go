@@ -54,6 +54,17 @@ func (mh *monitorHub) RunMonitoring() {
 }
 
 func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
+	outputChan := make(chan string, 1000)
+	switch bm.Engine {
+	case "docker":
+		connectToDocker(mh.ctx, bm.UnitName, outputChan)
+	case "journal":
+		connectToJournal(mh.ctx, bm.UnitName, outputChan)
+	case "syslog":
+		connectToSyslog(mh.ctx, bm.LogPath, outputChan)
+	default:
+		return ErrEngineNotFound
+	}
 	return nil
 }
 
