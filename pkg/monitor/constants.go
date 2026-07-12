@@ -17,3 +17,9 @@ var (
 	resourcePollInterval = 5 * time.Second
 	windowPollInterval   = 1 * time.Second
 )
+
+var (
+	sourceRetryInterval      = 15 * time.Second
+	openLogFileRetries       = 10
+	openLogFileRetryInterval = 500 * time.Millisecond
+)

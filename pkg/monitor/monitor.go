@@ -115,11 +115,11 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	}
 	switch bm.Engine {
 	case "docker":
-		go connectToDocker(mh.ctx, mh.cancel, bm.UnitName, outputChan)
+		go connectToDocker(mh.ctx, bm.UnitName, outputChan)
 	case "journal":
-		go connectToJournal(mh.ctx, mh.cancel, bm.UnitName, outputChan)
+		go connectToJournal(mh.ctx, bm.UnitName, outputChan)
 	case "syslog":
-		go connectToSyslog(mh.ctx, mh.cancel, bm.LogPath, outputChan)
+		go connectToSyslog(mh.ctx, bm.LogPath, outputChan)
 	default:
 		return fmt.Errorf("monitor.RunBaseMonitor(engine: %s) -> %w", bm.Engine, ErrEngineNotFound)
 	}
