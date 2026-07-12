@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log"
+	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
 	"open-defender/pkg/installer"
 	"open-defender/pkg/monitor"
@@ -18,6 +19,7 @@ type App interface {
 type app struct {
 	cfg        *config.Config
 	configPath string
+	bp         banpool.BanPool
 	installer  installer.Installer
 }
 
@@ -36,6 +38,7 @@ func (a *app) Initialize() error {
 		return fmt.Errorf("app.Initialize() -> %w", err)
 	}
 	a.cfg = cfg
+	a.bp, err = banpool.New(cfg)
 	return nil
 }
 
@@ -50,6 +53,6 @@ func (a *app) Install() error {
 }
 
 func (a *app) Run() {
-	mh := monitor.New(a.cfg)
+	mh := monitor.New(a.cfg, a.bp)
 	mh.RunMonitoring()
 }

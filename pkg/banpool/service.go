@@ -1,6 +1,7 @@
 package banpool
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -10,7 +11,7 @@ import (
 )
 
 type BanPool interface {
-	BanIP(ip string, banSeconds uint64) error
+	BanIP(ctx context.Context, ip string, banSeconds uint64) error
 	UnbanIP(ip string) error
 }
 
@@ -32,7 +33,7 @@ func New(cfg *config.Config) (BanPool, error) {
 	}, nil
 }
 
-func (bp *banPool) BanIP(ip string, banSeconds uint64) error {
+func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) error {
 	bp.mutex.Lock()
 	defer bp.mutex.Unlock()
 
@@ -68,7 +69,7 @@ func (bp *banPool) BanIP(ip string, banSeconds uint64) error {
 		return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
 	}
 
-	go bp.waitUnban(ban)
+	go bp.waitUnban(ctx, ban)
 
 	return nil
 }
@@ -94,10 +95,14 @@ func (bp *banPool) extendBan(ban *Ban, bannedUntil time.Time) error {
 	return nil
 }
 
-func (bp *banPool) waitUnban(ban *Ban) {
+func (bp *banPool) waitUnban(ctx context.Context, ban *Ban) {
 	for {
 		time.Sleep(time.Until(ban.BannedUntil))
-
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		bp.mutex.Lock()
 
 		current, err := bp.repository.Get(ban.IP)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
 	"regexp"
 	"sync"
@@ -21,15 +22,17 @@ type monitorHub struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
+	bp     banpool.BanPool
 }
 
-func New(cfg *config.Config) MonitorHub {
+func New(cfg *config.Config, bp banpool.BanPool) MonitorHub {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &monitorHub{
 		ctx:    ctx,
 		cancel: cancel,
 		cfg:    cfg,
 		wg:     new(sync.WaitGroup),
+		bp:     bp,
 	}
 }
 
@@ -114,7 +117,12 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 		if counter >= bm.Tries {
 			action := func() {}
 			if bm.Mode == "blocker" {
-
+				action = func() {
+					err := mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
+					if err != nil {
+						log.Println(err.Error())
+					}
+				}
 			}
 			mh.alert(journalInfo, fmt.Sprintf("banned ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
 		}
