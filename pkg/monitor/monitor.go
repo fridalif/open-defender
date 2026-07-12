@@ -7,6 +7,7 @@ import (
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -97,6 +98,7 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	}
 	outputChan := make(chan string, 1000)
 	ipAttemptsMap := sync.Map{}
+	go mh.clearMaps(mh.ctx, bm.WindowSeconds, &ipAttemptsMap)
 	re := regexp.MustCompile(bm.Pattern)
 	switch bm.Engine {
 	case "docker":
@@ -110,7 +112,7 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 	}
 	for message := range outputChan {
 		ip, found := mh.getIp(re, message)
-		if !found {
+		if !found || slices.Contains(mh.cfg.IPWhiteList, ip) {
 			continue
 		}
 		raw, _ := ipAttemptsMap.LoadOrStore(ip, uint64(0))
