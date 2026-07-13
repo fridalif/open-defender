@@ -193,6 +193,6 @@ func (bp *banPool) unban(ip string) error {
 	if err := bp.repository.Delete(ban.ID); err != nil {
 		return fmt.Errorf("banpool.unban(ip: %s) -> %w", ip, err)
 	}
-
+	log.Println("Successfully unbanned ip: ", ip)
 	return nil
 }
