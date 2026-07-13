@@ -72,7 +72,7 @@ func (mh *monitorHub) RunMonitoring() {
 
 func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
 	matches := re.FindStringSubmatch(message)
-	if matches == nil || len(matches) == 0 {
+	if len(matches) == 0 {
 		return "", false
 	}
 	for i, name := range re.SubexpNames() {

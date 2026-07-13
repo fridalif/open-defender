@@ -23,3 +23,8 @@ var (
 	openLogFileRetries       = 10
 	openLogFileRetryInterval = 500 * time.Millisecond
 )
+
+const (
+	journalctlCommand = "journalctl"
+	maxLogLineSize    = 1024 * 1024
+)

@@ -2,14 +2,16 @@ package monitor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
-	"github.com/coreos/go-systemd/v22/sdjournal"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -94,51 +96,50 @@ func attachToDocker(ctx context.Context, containerName string, logsChan chan<- s
 }
 
 func attachToJournal(ctx context.Context, unitName string, logsChan chan<- string) error {
-	j, err := sdjournal.NewJournal()
+	if _, err := exec.LookPath(journalctlCommand); err != nil {
+		return fmt.Errorf("%w: %v", ErrCantConnectToJournal, err)
+	}
+
+	command := exec.CommandContext(ctx, journalctlCommand,
+		"--unit", unitName, "--follow", "--lines", "0", "--output", "cat")
+
+	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCantConnectToJournal, err)
 	}
-	defer j.Close()
 
-	if err := j.AddMatch("_SYSTEMD_UNIT=" + unitName); err != nil {
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+
+	if err := command.Start(); err != nil {
 		return fmt.Errorf("%w: %v", ErrCantConnectToJournal, err)
 	}
 
-	if err := j.SeekTail(); err != nil {
-		return fmt.Errorf("%w: %v", ErrCantConnectToJournal, err)
-	}
-	if _, err := j.Previous(); err != nil {
-		return fmt.Errorf("%w: %v", ErrCantConnectToJournal, err)
-	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxLogLineSize)
 
-	for {
+	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-		}
-
-		n, err := j.Next()
-		if err != nil {
-			return fmt.Errorf("%w: %v", ErrCantReadJournal, err)
-		}
-
-		if n == 0 {
-			j.Wait(time.Second)
-			continue
-		}
-
-		entry, err := j.GetEntry()
-		if err != nil {
-			return fmt.Errorf("%w: %v", ErrCantReadJournal, err)
-		}
-
-		select {
-		case logsChan <- entry.Fields["MESSAGE"]:
-		case <-ctx.Done():
-			return nil
+		case logsChan <- scanner.Text():
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		command.Wait()
+		return fmt.Errorf("%w: %v", ErrCantReadJournal, err)
+	}
+
+	if err := command.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		return fmt.Errorf("%w: %v: %s", ErrCantReadJournal, err, strings.TrimSpace(stderr.String()))
+	}
+
+	return fmt.Errorf("%w: journalctl exited", ErrCantReadJournal)
 }
 
 func attachToSyslog(ctx context.Context, path string, logsChan chan<- string) error {
