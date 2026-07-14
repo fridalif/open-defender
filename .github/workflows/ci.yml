@@ -1,0 +1,97 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make test
+
+  release:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < version.txt)"
+
+          if [ -z "$version" ]; then
+            echo "version.txt is empty" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "release $version is already out, nothing to build"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.version.outputs.exists == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+
+      - if: steps.version.outputs.exists == 'false'
+        env:
+          CGO_ENABLED: 1
+          TAGS: netgo osusergo sqlite_omit_load_extension
+          LDFLAGS: -s -w -extldflags "-static"
+        run: |
+          mkdir -p dist
+
+          build() {
+            arch="$1" goarch="$2" cc="$3" goarm="$4"
+
+            echo "::group::open-defender_$arch"
+            GOARCH="$goarch" GOARM="$goarm" CC="$cc" \
+              go build -tags "$TAGS" -ldflags "$LDFLAGS" -o "dist/open-defender_$arch" ./cmd
+            file "dist/open-defender_$arch"
+            echo "::endgroup::"
+          }
+
+          build amd64 amd64 gcc            ""
+          build 386   386   "gcc -m32"     ""
+          build arm64 arm64 aarch64-linux-gnu-gcc ""
+          build arm32 arm   arm-linux-gnueabihf-gcc 7
+
+      - if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            dist/open-defender_amd64 \
+            dist/open-defender_386 \
+            dist/open-defender_arm64 \
+            dist/open-defender_arm32
