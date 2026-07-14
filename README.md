@@ -31,9 +31,34 @@ Options:
   -i, --install    install open-defender as a systemd service and start it
   -u, --update     update the installed binary from the latest github release
   -t, --test       check the current config and exit
+  -s, --status     print the monitors that are turned on and exit
   -r, --restart    restart the open-defender service
   -h, --help       print this message
 ```
+
+Neither `-t`, `-s` nor `-h` needs root, the rest do.
+
+### The monitors that are turned on (`-s`)
+
+```sh
+open-defender -s
+```
+
+```
+/etc/open-defender/config.yaml
+
+MONITOR           MODE     ENGINE   SOURCE                   TRIES
+ssh_monitor       blocker  syslog   /var/log/auth.log        5 in 300s, ban 900s
+database_monitor  logger   journal  postgresql               5 in 300s
+resource_monitor  enabled  -        /var/log/open-defender/  cpu 60/90, ram 60/90
+
+disabled: web_recon_monitor, web_brute_monitor
+```
+
+A monitor left at `mode: disabled` is never started, so it is only named at the bottom. `SOURCE` is
+the log file of the `syslog` engine or the unit of the `journal` and `docker` ones. The limits of the
+resource monitor are printed as `warning/alert`, the ones left at zero are turned off and are left
+out. Like `-t`, the config is only read, never rewritten.
 
 
 ### Checking the config (`-t`)

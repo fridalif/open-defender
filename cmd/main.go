@@ -30,6 +30,13 @@ func main() {
 		return
 	}
 
+	if runConfig.Status {
+		if err := app.Status(); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
 	if os.Geteuid() != 0 {
 		log.Fatalln("failed to run programm: you must be a superuser")
 	}

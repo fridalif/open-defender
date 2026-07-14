@@ -142,6 +142,32 @@ func New() *Config {
 	return config
 }
 
+type NamedMonitor struct {
+	Name   string
+	Fields *BaseFields
+}
+
+func (c *Config) Monitors() []NamedMonitor {
+	return []NamedMonitor{
+		{"ssh_monitor", &c.SSHMonitor.BaseFields},
+		{"web_recon_monitor", &c.WebReconMonitor.BaseFields},
+		{"web_brute_monitor", &c.WebBruteMonitor.BaseFields},
+		{"database_monitor", &c.DatabaseMonitor.BaseFields},
+	}
+}
+
+func (bm *BaseFields) Enabled() bool {
+	return bm.Mode != modeDisabled
+}
+
+func (bm *BaseFields) Source() string {
+	if bm.Engine == engineSyslog {
+		return bm.LogPath
+	}
+
+	return bm.UnitName
+}
+
 func (c *Config) GetLocalIps() ([]string, error) {
 	var ips []string
 

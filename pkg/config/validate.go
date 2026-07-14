@@ -23,11 +23,6 @@ var (
 	validEngines = []string{engineSyslog, "journal", "docker"}
 )
 
-type namedBase struct {
-	name   string
-	fields *BaseFields
-}
-
 func (c *Config) Validate() []error {
 	var problems []error
 
@@ -41,15 +36,8 @@ func (c *Config) Validate() []error {
 		}
 	}
 
-	monitors := []namedBase{
-		{"ssh_monitor", &c.SSHMonitor.BaseFields},
-		{"web_recon_monitor", &c.WebReconMonitor.BaseFields},
-		{"web_brute_monitor", &c.WebBruteMonitor.BaseFields},
-		{"database_monitor", &c.DatabaseMonitor.BaseFields},
-	}
-
-	for _, monitor := range monitors {
-		problems = append(problems, c.validateBase(monitor.name, monitor.fields)...)
+	for _, monitor := range c.Monitors() {
+		problems = append(problems, c.validateBase(monitor.Name, monitor.Fields)...)
 	}
 
 	problems = append(problems, c.validateResource("resource_monitor", &c.ResourceMonitor)...)
