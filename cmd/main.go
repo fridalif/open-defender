@@ -21,10 +21,40 @@ func main() {
 		return
 	}
 
+	app := app.New()
+
+	if runConfig.Test {
+		if err := app.TestConfig(); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
+	if runConfig.Status {
+		if err := app.Status(); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
 	if os.Geteuid() != 0 {
 		log.Fatalln("failed to run programm: you must be a superuser")
 	}
-	app := app.New()
+
+	if runConfig.Update {
+		if err := app.Update(); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
+	if runConfig.Restart {
+		if err := app.Restart(); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
 	err = app.Initialize()
 	if err != nil {
 		log.Fatalln(err)

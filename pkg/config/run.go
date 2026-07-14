@@ -6,11 +6,19 @@ const Usage = `Usage: open-defender [options]
 
 Options:
   -i, --install    install open-defender as a systemd service and start it
+  -u, --update     update the installed binary from the latest github release
+  -t, --test       check the current config and exit
+  -s, --status     print the monitors that are turned on and exit
+  -r, --restart    restart the open-defender service
   -h, --help       print this message
 `
 
 type RunConfig struct {
 	Install bool
+	Update  bool
+	Test    bool
+	Status  bool
+	Restart bool
 	Help    bool
 }
 
@@ -21,6 +29,14 @@ func ParseArgs(argv []string) (*RunConfig, error) {
 		switch arg {
 		case "-i", "--install":
 			runConfig.Install = true
+		case "-u", "--update":
+			runConfig.Update = true
+		case "-t", "--test":
+			runConfig.Test = true
+		case "-s", "--status":
+			runConfig.Status = true
+		case "-r", "--restart":
+			runConfig.Restart = true
 		case "-h", "--help":
 			runConfig.Help = true
 		default:

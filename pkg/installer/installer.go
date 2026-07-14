@@ -28,6 +28,10 @@ WantedBy=multi-user.target
 type Installer interface {
 	Install() error
 	ServiceName() string
+	BinaryPath() string
+	Start() error
+	Stop() error
+	Restart() error
 }
 
 type installer struct {
@@ -44,6 +48,34 @@ func New() Installer {
 
 func (i *installer) ServiceName() string {
 	return serviceName
+}
+
+func (i *installer) BinaryPath() string {
+	return i.binaryPath
+}
+
+func (i *installer) Start() error {
+	if output, err := exec.Command("systemctl", "start", serviceName).CombinedOutput(); err != nil {
+		return fmt.Errorf("installer.Start() -> %w: %v: %s", ErrStartService, err, output)
+	}
+
+	return nil
+}
+
+func (i *installer) Stop() error {
+	if output, err := exec.Command("systemctl", "stop", serviceName).CombinedOutput(); err != nil {
+		return fmt.Errorf("installer.Stop() -> %w: %v: %s", ErrStopService, err, output)
+	}
+
+	return nil
+}
+
+func (i *installer) Restart() error {
+	if output, err := exec.Command("systemctl", "restart", serviceName).CombinedOutput(); err != nil {
+		return fmt.Errorf("installer.Restart() -> %w: %v: %s", ErrRestartService, err, output)
+	}
+
+	return nil
 }
 
 func (i *installer) Install() error {
@@ -127,9 +159,8 @@ func (i *installer) enableService() error {
 		return fmt.Errorf("installer.enableService() -> %w: %v: %s", ErrEnableService, err, output)
 	}
 
-	// restart, not start: on reinstall the service is already running with the previous binary
-	if output, err := exec.Command("systemctl", "restart", serviceName).CombinedOutput(); err != nil {
-		return fmt.Errorf("installer.enableService() -> %w: %v: %s", ErrStartService, err, output)
+	if err := i.Restart(); err != nil {
+		return fmt.Errorf("installer.enableService() -> %w", err)
 	}
 
 	return nil

@@ -13,4 +13,6 @@ var (
 	ErrDaemonReload      = errors.New("failed to reload systemd daemon")
 	ErrEnableService     = errors.New("failed to enable systemd service")
 	ErrStartService      = errors.New("failed to start systemd service")
+	ErrStopService       = errors.New("failed to stop systemd service")
+	ErrRestartService    = errors.New("failed to restart systemd service")
 )
