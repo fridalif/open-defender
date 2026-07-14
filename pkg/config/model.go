@@ -205,7 +205,6 @@ func (c *Config) applyComments(node *yaml.Node, structType reflect.Type) {
 		field := structType.Field(i)
 		name, inline := c.yamlName(field)
 
-		// an embedded struct has no key of its own, its fields sit in the very same mapping
 		if inline {
 			c.applyComments(node, field.Type)
 			continue
@@ -249,6 +248,25 @@ func (c *Config) findKey(node *yaml.Node, name string) (*yaml.Node, *yaml.Node) 
 	}
 
 	return nil, nil
+}
+
+func (c *Config) LoadConfigReadOnly(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %s", ErrConfigNotFound, path)
+	} else if err != nil {
+		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrStatConfig, err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrReadConfig, err)
+	}
+
+	if err := yaml.Unmarshal(data, c); err != nil {
+		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrParseConfig, err)
+	}
+
+	return nil
 }
 
 func (c *Config) LoadConfig(path string) error {
