@@ -30,14 +30,25 @@ test-verbose:
 test-race:
 	$(GO) test -race $(PKGS)
 
+.PHONY: test-integration
+test-integration:
+	$(GO) test -tags=integration $(PKGS)
+
 .PHONY: cover
 cover:
 	$(GO) test -coverprofile=$(COVERFILE) -covermode=atomic $(PKGS)
-	$(GO) tool cover -func=$(COVERFILE)
+	grep -v '/mocks/' $(COVERFILE) > $(COVERFILE).nomocks
+	$(GO) tool cover -func=$(COVERFILE).nomocks
 
 .PHONY: cover-html
 cover-html: cover
-	$(GO) tool cover -html=$(COVERFILE)
+	$(GO) tool cover -html=$(COVERFILE).nomocks
+
+.PHONY: cover-integration
+cover-integration:
+	$(GO) test -tags=integration -coverprofile=$(COVERFILE) -covermode=atomic $(PKGS)
+	grep -v '/mocks/' $(COVERFILE) > $(COVERFILE).nomocks
+	$(GO) tool cover -func=$(COVERFILE).nomocks
 
 .PHONY: vet
 vet:
@@ -53,4 +64,4 @@ check: vet test
 .PHONY: clean
 clean:
 	$(GO) clean -testcache
-	rm -rf $(BUILDDIR) $(COVERFILE)
+	rm -rf $(BUILDDIR) $(COVERFILE) $(COVERFILE).nomocks

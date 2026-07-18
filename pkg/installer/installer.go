@@ -13,6 +13,17 @@ import (
 
 const serviceName = "open-defender"
 
+var (
+	runCommand = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}
+	osExecutable   = os.Executable
+	evalSymlinks   = filepath.EvalSymlinks
+	openExecutable = os.Open
+	openBinary     = os.OpenFile
+	copyBinary     = io.Copy
+)
+
 const unitTemplate = `[Unit]
 Description=Open Defender
 After=network.target
@@ -57,7 +68,7 @@ func (i *installer) BinaryPath() string {
 }
 
 func (i *installer) Start() error {
-	if output, err := exec.Command("systemctl", "start", serviceName).CombinedOutput(); err != nil {
+	if output, err := runCommand("systemctl", "start", serviceName); err != nil {
 		return fmt.Errorf("installer.Start() -> %w: %v: %s", ErrStartService, err, output)
 	}
 
@@ -65,7 +76,7 @@ func (i *installer) Start() error {
 }
 
 func (i *installer) Stop() error {
-	if output, err := exec.Command("systemctl", "stop", serviceName).CombinedOutput(); err != nil {
+	if output, err := runCommand("systemctl", "stop", serviceName); err != nil {
 		return fmt.Errorf("installer.Stop() -> %w: %v: %s", ErrStopService, err, output)
 	}
 
@@ -73,7 +84,7 @@ func (i *installer) Stop() error {
 }
 
 func (i *installer) Restart() error {
-	if output, err := exec.Command("systemctl", "restart", serviceName).CombinedOutput(); err != nil {
+	if output, err := runCommand("systemctl", "restart", serviceName); err != nil {
 		return fmt.Errorf("installer.Restart() -> %w: %v: %s", ErrRestartService, err, output)
 	}
 
@@ -97,12 +108,12 @@ func (i *installer) Install() error {
 }
 
 func (i *installer) installBinary() error {
-	executable, err := os.Executable()
+	executable, err := osExecutable()
 	if err != nil {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrGettingExecutable, err)
 	}
 
-	executable, err = filepath.EvalSymlinks(executable)
+	executable, err = evalSymlinks(executable)
 	if err != nil {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrGettingExecutable, err)
 	}
@@ -111,7 +122,7 @@ func (i *installer) installBinary() error {
 		return nil
 	}
 
-	source, err := os.Open(executable)
+	source, err := openExecutable(executable)
 	if err != nil {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrOpenExecutable, err)
 	}
@@ -125,13 +136,13 @@ func (i *installer) installBinary() error {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrReplaceBinary, err)
 	}
 
-	destination, err := os.OpenFile(i.binaryPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	destination, err := openBinary(i.binaryPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrWriteBinary, err)
 	}
 	defer destination.Close()
 
-	if _, err := io.Copy(destination, source); err != nil {
+	if _, err := copyBinary(destination, source); err != nil {
 		return fmt.Errorf("installer.installBinary() -> %w: %v", ErrWriteBinary, err)
 	}
 
@@ -153,11 +164,11 @@ func (i *installer) installUnit() error {
 }
 
 func (i *installer) enableService() error {
-	if output, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+	if output, err := runCommand("systemctl", "daemon-reload"); err != nil {
 		return fmt.Errorf("installer.enableService() -> %w: %v: %s", ErrDaemonReload, err, output)
 	}
 
-	if output, err := exec.Command("systemctl", "enable", serviceName).CombinedOutput(); err != nil {
+	if output, err := runCommand("systemctl", "enable", serviceName); err != nil {
 		return fmt.Errorf("installer.enableService() -> %w: %v: %s", ErrEnableService, err, output)
 	}
 

@@ -19,6 +19,13 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
+var (
+	netIOCounters  = net.IOCountersWithContext
+	diskIOCounters = disk.IOCountersWithContext
+	cpuPercent     = cpu.PercentWithContext
+	memVirtual     = mem.VirtualMemoryWithContext
+)
+
 type MonitorHub interface {
 	RunMonitoring()
 	RunBaseMonitor(bm *config.BaseFields) error
@@ -98,9 +105,11 @@ func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap
 	}
 }
 
+var goRun = func(f func()) { go f() }
+
 func (mh *monitorHub) alert(critLevel int, message string, afterAction func()) {
 	log.Printf("<%d>%s\n", critLevel, message)
-	go afterAction()
+	goRun(afterAction)
 }
 
 func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
@@ -115,15 +124,8 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 		mh.cancel()
 		return fmt.Errorf("monitor.RunBaseMonitor() -> %w: %v", ErrCompileRegexp, err)
 	}
-	switch bm.Engine {
-	case "docker":
-		go connectToDocker(mh.ctx, bm.UnitName, outputChan)
-	case "journal":
-		go connectToJournal(mh.ctx, bm.UnitName, outputChan)
-	case "syslog":
-		go connectToSyslog(mh.ctx, bm.LogPath, outputChan)
-	default:
-		return fmt.Errorf("monitor.RunBaseMonitor(engine: %s) -> %w", bm.Engine, ErrEngineNotFound)
+	if err := startSource(mh.ctx, bm, outputChan); err != nil {
+		return err
 	}
 	for message := range outputChan {
 		ip, found := mh.getIp(re, message)
@@ -155,30 +157,30 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 }
 
 func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) error {
-	netBefore, err := net.IOCountersWithContext(mh.ctx, false)
+	netBefore, err := netIOCounters(mh.ctx, false)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetTrafficUsage, err)
 	}
-	diskBefore, err := disk.IOCountersWithContext(mh.ctx)
+	diskBefore, err := diskIOCounters(mh.ctx)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetDiskUsage, err)
 	}
 
-	cpuPercents, err := cpu.PercentWithContext(mh.ctx, windowPollInterval, false)
+	cpuPercents, err := cpuPercent(mh.ctx, windowPollInterval, false)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetCPUUsage, err)
 	}
 
-	netAfter, err := net.IOCountersWithContext(mh.ctx, false)
+	netAfter, err := netIOCounters(mh.ctx, false)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetTrafficUsage, err)
 	}
-	diskAfter, err := disk.IOCountersWithContext(mh.ctx)
+	diskAfter, err := diskIOCounters(mh.ctx)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetDiskUsage, err)
 	}
 
-	v, err := mem.VirtualMemoryWithContext(mh.ctx)
+	v, err := memVirtual(mh.ctx)
 	if err != nil {
 		return fmt.Errorf("monitor.checkResourceMetrics() -> %w: %v", ErrCantGetRAMUsage, err)
 	}

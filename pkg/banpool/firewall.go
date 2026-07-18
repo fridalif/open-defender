@@ -10,6 +10,10 @@ import (
 
 const iptablesCommand = "iptables"
 
+var runCommand = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
+}
+
 type Firewall interface {
 	Ban(ip string) error
 	Unban(ip string) error
@@ -30,7 +34,7 @@ func (f *firewall) Ban(ip string) error {
 		return nil
 	}
 
-	if output, err := exec.Command(iptablesCommand, "--insert", "INPUT", "--source", ip, "--jump", "DROP").CombinedOutput(); err != nil {
+	if output, err := runCommand(iptablesCommand, "--insert", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
 		return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
 	}
 
@@ -46,7 +50,7 @@ func (f *firewall) Unban(ip string) error {
 		return nil
 	}
 
-	if output, err := exec.Command(iptablesCommand, "--delete", "INPUT", "--source", ip, "--jump", "DROP").CombinedOutput(); err != nil {
+	if output, err := runCommand(iptablesCommand, "--delete", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
 		return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
 	}
 
@@ -54,7 +58,7 @@ func (f *firewall) Unban(ip string) error {
 }
 
 func (f *firewall) hasRule(ip string) bool {
-	err := exec.Command(iptablesCommand, "--check", "INPUT", "--source", ip, "--jump", "DROP").Run()
+	_, err := runCommand(iptablesCommand, "--check", "INPUT", "--source", ip, "--jump", "DROP")
 	return err == nil
 }
 

@@ -21,11 +21,21 @@ CREATE TABLE IF NOT EXISTS bans (
 	banned_until TIMESTAMP NOT NULL
 )`
 
-// DB abstracts the subset of *sql.DB used by the repository so it can be mocked.
+type Row interface {
+	Scan(dest ...any) error
+}
+
+type Rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close() error
+}
+
 type DB interface {
 	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) Row
+	Query(query string, args ...any) (Rows, error)
 	Close() error
 }
 
@@ -39,6 +49,34 @@ type Repository interface {
 	Close() error
 }
 
+type sqlDB struct {
+	db *sql.DB
+}
+
+func (s *sqlDB) Exec(query string, args ...any) (sql.Result, error) {
+	return s.db.Exec(query, args...)
+}
+
+func (s *sqlDB) QueryRow(query string, args ...any) Row {
+	return s.db.QueryRow(query, args...)
+}
+
+func (s *sqlDB) Query(query string, args ...any) (Rows, error) {
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *sqlDB) Close() error {
+	return s.db.Close()
+}
+
+var openDB = func(databasePath string) (*sql.DB, error) {
+	return sql.Open("sqlite3", databasePath)
+}
+
 type repository struct {
 	db DB
 }
@@ -48,7 +86,7 @@ func NewRepository(databasePath string) (Repository, error) {
 		return nil, fmt.Errorf("banpool.NewRepository(databasePath: %s) -> %w: %v", databasePath, ErrCantCreateDatabaseDir, err)
 	}
 
-	db, err := sql.Open("sqlite3", databasePath)
+	db, err := openDB(databasePath)
 	if err != nil {
 		return nil, fmt.Errorf("banpool.NewRepository(databasePath: %s) -> %w: %v", databasePath, ErrCantOpenDatabase, err)
 	}
@@ -58,7 +96,7 @@ func NewRepository(databasePath string) (Repository, error) {
 		return nil, fmt.Errorf("banpool.NewRepository(databasePath: %s) -> %w: %v", databasePath, ErrCantCreateTable, err)
 	}
 
-	return &repository{db: db}, nil
+	return &repository{db: &sqlDB{db}}, nil
 }
 
 func (r *repository) Add(ban *Ban) (int64, error) {
