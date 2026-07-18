@@ -1,5 +1,7 @@
 package banpool
 
+//go:generate mockgen -source=firewall.go -destination=mocks/firewall_mock.go -package=mocks
+
 import (
 	"fmt"
 	"net"

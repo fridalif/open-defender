@@ -14,6 +14,10 @@ COVERFILE := coverage.out
 build:
 	$(GO) build -o $(BUILDDIR)/$(BINARY) $(CMD)
 
+.PHONY: mocks
+mocks:
+	$(GO) generate $(PKGS)
+
 .PHONY: test
 test:
 	$(GO) test $(PKGS)

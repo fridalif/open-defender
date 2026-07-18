@@ -1,5 +1,7 @@
 package installer
 
+//go:generate mockgen -source=installer.go -destination=mocks/installer_mock.go -package=mocks
+
 import (
 	"fmt"
 	"io"

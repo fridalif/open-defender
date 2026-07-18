@@ -1,5 +1,7 @@
 package app
 
+//go:generate mockgen -source=app.go -destination=mocks/app_mock.go -package=mocks
+
 import (
 	"fmt"
 	"log"

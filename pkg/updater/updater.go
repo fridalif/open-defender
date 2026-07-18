@@ -1,5 +1,7 @@
 package updater
 
+//go:generate mockgen -source=updater.go -destination=mocks/updater_mock.go -package=mocks
+
 import (
 	"bufio"
 	"fmt"

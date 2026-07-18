@@ -1,5 +1,7 @@
 package banpool
 
+//go:generate mockgen -source=repository.go -destination=mocks/repository_mock.go -package=mocks
+
 import (
 	"database/sql"
 	"errors"
@@ -19,6 +21,14 @@ CREATE TABLE IF NOT EXISTS bans (
 	banned_until TIMESTAMP NOT NULL
 )`
 
+// DB abstracts the subset of *sql.DB used by the repository so it can be mocked.
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+	Close() error
+}
+
 type Repository interface {
 	Add(ban *Ban) (int64, error)
 	Get(ip string) (*Ban, error)
@@ -30,7 +40,7 @@ type Repository interface {
 }
 
 type repository struct {
-	db *sql.DB
+	db DB
 }
 
 func NewRepository(databasePath string) (Repository, error) {
