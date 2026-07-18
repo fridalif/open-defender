@@ -19,7 +19,23 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - run: make test
+      - run: |
+          go test -coverprofile=coverage.out -covermode=atomic ./...
+          grep -v '/mocks/' coverage.out > coverage.nomocks.out
+          pct=$(go tool cover -func=coverage.nomocks.out | awk '/^total:/{print substr($3, 1, length($3)-1)}')
+          echo "COVERAGE=$pct" >> "$GITHUB_ENV"
+
+      - if: github.ref == 'refs/heads/main'
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 7fa26c09b8c489d79bbbaf8d53726345
+          filename: open-defender-coverage.json
+          label: coverage
+          message: ${{ env.COVERAGE }}%
+          valColorRange: ${{ env.COVERAGE }}
+          minColorRange: 50
+          maxColorRange: 90
 
   release:
     needs: test
