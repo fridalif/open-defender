@@ -13,6 +13,8 @@ import (
 
 const snapshotTimeLayout = "2006-01-02_15-04-05"
 
+var listProcesses = process.ProcessesWithContext
+
 type processUsage struct {
 	pid        int32
 	user       string
@@ -52,7 +54,7 @@ func (mh *monitorHub) saveSnapshot(dir string) error {
 }
 
 func (mh *monitorHub) collectProcessUsages() ([]processUsage, error) {
-	processes, err := process.ProcessesWithContext(mh.ctx)
+	processes, err := listProcesses(mh.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("monitor.collectProcessUsages() -> %w: %v", ErrCantGetProcesses, err)
 	}

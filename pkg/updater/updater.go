@@ -1,5 +1,7 @@
 package updater
 
+//go:generate mockgen -source=updater.go -destination=mocks/updater_mock.go -package=mocks
+
 import (
 	"bufio"
 	"fmt"
@@ -16,10 +18,12 @@ import (
 	"time"
 )
 
-const (
+var (
 	versionURL = "https://raw.githubusercontent.com/fridalif/open-defender/main/version.txt"
 	releaseURL = "https://github.com/fridalif/open-defender/releases/download/%s/open-defender_%s"
+)
 
+const (
 	fetchTimeout    = 15 * time.Second
 	downloadTimeout = 10 * time.Minute
 )
@@ -27,6 +31,15 @@ const (
 var releasedArches = []string{"amd64", "386", "arm64", "arm32"}
 
 var versionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+var (
+	renameFile = os.Rename
+	createTemp = os.CreateTemp
+	copyFile   = io.Copy
+	chmodFile  = os.Chmod
+	readAll    = io.ReadAll
+	goArch     = runtime.GOARCH
+)
 
 type Updater interface {
 	Update() error
@@ -87,7 +100,7 @@ func (u *updater) swapBinary(downloaded string) error {
 
 	restore := false
 
-	if err := os.Rename(target, backup); err != nil {
+	if err := renameFile(target, backup); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("updater.swapBinary() -> %w: %v", ErrReplaceBinary, err)
 		}
@@ -95,10 +108,9 @@ func (u *updater) swapBinary(downloaded string) error {
 		restore = true
 	}
 
-	// a rename, not a write: the binary being replaced may be the very one that is running
-	if err := os.Rename(downloaded, target); err != nil {
+	if err := renameFile(downloaded, target); err != nil {
 		if restore {
-			if restoreErr := os.Rename(backup, target); restoreErr != nil {
+			if restoreErr := renameFile(backup, target); restoreErr != nil {
 				return fmt.Errorf("updater.swapBinary() -> %w: %v, the previous binary is left at %s", ErrReplaceBinary, err, backup)
 			}
 
@@ -117,7 +129,7 @@ func (u *updater) swapBinary(downloaded string) error {
 
 		log.Printf("%v, rolling back to the previous binary", err)
 
-		if restoreErr := os.Rename(backup, target); restoreErr != nil {
+		if restoreErr := renameFile(backup, target); restoreErr != nil {
 			return fmt.Errorf("updater.swapBinary() -> %w: %v, the previous binary is left at %s", ErrReplaceBinary, restoreErr, backup)
 		}
 
@@ -156,18 +168,18 @@ func (u *updater) download(url string) (string, error) {
 		return "", fmt.Errorf("updater.download() -> %w: %v", ErrWriteBinary, err)
 	}
 
-	file, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".new-*")
+	file, err := createTemp(filepath.Dir(target), filepath.Base(target)+".new-*")
 	if err != nil {
 		return "", fmt.Errorf("updater.download() -> %w: %v", ErrWriteBinary, err)
 	}
 	defer file.Close()
 
-	if _, err := io.Copy(file, response.Body); err != nil {
+	if _, err := copyFile(file, response.Body); err != nil {
 		os.Remove(file.Name())
 		return "", fmt.Errorf("updater.download() -> %w: %v", ErrWriteBinary, err)
 	}
 
-	if err := os.Chmod(file.Name(), 0755); err != nil {
+	if err := chmodFile(file.Name(), 0755); err != nil {
 		os.Remove(file.Name())
 		return "", fmt.Errorf("updater.download() -> %w: %v", ErrWriteBinary, err)
 	}
@@ -210,7 +222,7 @@ func (u *updater) fetchVersion() (string, error) {
 		return "", fmt.Errorf("updater.fetchVersion() -> %w: %s", ErrFetchVersion, response.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(response.Body, 256))
+	body, err := readAll(io.LimitReader(response.Body, 256))
 	if err != nil {
 		return "", fmt.Errorf("updater.fetchVersion() -> %w: %v", ErrFetchVersion, err)
 	}
@@ -246,7 +258,7 @@ func (u *updater) resolveArch() (string, error) {
 }
 
 func (u *updater) detectArch() (string, error) {
-	switch runtime.GOARCH {
+	switch goArch {
 	case "amd64":
 		return "amd64", nil
 	case "386":
@@ -256,7 +268,7 @@ func (u *updater) detectArch() (string, error) {
 	case "arm":
 		return "arm32", nil
 	default:
-		return "", fmt.Errorf("updater.detectArch() -> %w: %s", ErrUnknownArch, runtime.GOARCH)
+		return "", fmt.Errorf("updater.detectArch() -> %w: %s", ErrUnknownArch, goArch)
 	}
 }
 

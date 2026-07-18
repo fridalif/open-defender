@@ -14,6 +14,12 @@ import (
 
 const commentTag = "comment"
 
+var (
+	interfaceAddrs = net.InterfaceAddrs
+	encodeNode     = (*yaml.Node).Encode
+	marshalYAML    = yaml.Marshal
+)
+
 type BaseFields struct {
 	Mode          string `yaml:"mode" comment:"disabled, logger, blocker"`
 	Engine        string `yaml:"engine" comment:"syslog, journal, docker"`
@@ -171,7 +177,7 @@ func (bm *BaseFields) Source() string {
 func (c *Config) GetLocalIps() ([]string, error) {
 	var ips []string
 
-	addrs, err := net.InterfaceAddrs()
+	addrs, err := interfaceAddrs()
 	if err != nil {
 		return nil, fmt.Errorf("config.GetLocalIps() -> %w: %v", ErrGettingNetworkInterfaces, err)
 	}
@@ -204,13 +210,13 @@ func (c *Config) SaveConfig(path string) error {
 	}
 
 	node := &yaml.Node{}
-	if err := node.Encode(c); err != nil {
+	if err := encodeNode(node, c); err != nil {
 		return fmt.Errorf("config.SaveConfig() -> %w: %v", ErrMarshalConfig, err)
 	}
 
 	c.applyComments(node, reflect.TypeOf(*c))
 
-	data, err := yaml.Marshal(node)
+	data, err := marshalYAML(node)
 	if err != nil {
 		return fmt.Errorf("config.SaveConfig() -> %w: %v", ErrMarshalConfig, err)
 	}

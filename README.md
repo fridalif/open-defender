@@ -1,5 +1,7 @@
 # Open Defender
 
+![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/fridalif/7fa26c09b8c489d79bbbaf8d53726345/raw/open-defender-coverage.json)
+
 ![open-defender.jpg](./open-defender.webp)
 
 Open Source Linux Servers complex tool for monitoring and security audit

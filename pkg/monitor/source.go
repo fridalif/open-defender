@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"open-defender/pkg/config"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,6 +18,21 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/fsnotify/fsnotify"
 )
+
+var startSource = func(ctx context.Context, bm *config.BaseFields, logsChan chan<- string) error {
+	switch bm.Engine {
+	case "docker":
+		go connectToDocker(ctx, bm.UnitName, logsChan)
+	case "journal":
+		go connectToJournal(ctx, bm.UnitName, logsChan)
+	case "syslog":
+		go connectToSyslog(ctx, bm.LogPath, logsChan)
+	default:
+		return fmt.Errorf("monitor.RunBaseMonitor(engine: %s) -> %w", bm.Engine, ErrEngineNotFound)
+	}
+
+	return nil
+}
 
 func connectToDocker(ctx context.Context, containerName string, logsChan chan<- string) {
 	runSource(ctx, fmt.Sprintf("connectToDocker(containerName: %s)", containerName), logsChan,
