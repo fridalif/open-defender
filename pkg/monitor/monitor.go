@@ -64,6 +64,7 @@ func (mh *monitorHub) RunMonitoring() {
 		&mh.cfg.WebReconMonitor.BaseFields,
 		&mh.cfg.DatabaseMonitor.BaseFields,
 	}
+
 	for _, mon := range baseMonitors {
 		mh.wg.Go(func() {
 			if err := mh.RunBaseMonitor(mon); err != nil {

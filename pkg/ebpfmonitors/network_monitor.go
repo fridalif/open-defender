@@ -4,5 +4,11 @@ package ebpfmonitors
 
 type NetworkEvent struct {
 	SrcIP    uint32
-	DestPort uint32
+	DestPort uint16
+}
+
+type networkMonitor struct {
+}
+
+type NetworkMonitor interface {
 }
