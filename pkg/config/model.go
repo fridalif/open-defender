@@ -52,6 +52,15 @@ type DatabaseMonitorConfig struct {
 	BaseFields `yaml:",inline"`
 }
 
+type EbpfNetworkAntireconConfig struct {
+	Mode           string   `yaml:"mode" comment:"disabled, logger, blocker"`
+	PortsCount     uint64   `yaml:"ports_count" comment:"different ports count in window before ban"`
+	WindowSeconds  uint64   `yaml:"window_seconds" comment:"the hits are counted over this window, the counters are dropped afterwards"`
+	BanSeconds     uint64   `yaml:"ban_seconds" comment:"how long the ip stays banned, the blocker mode only"`
+	WhitelistPorts []uint64 `yaml:"whitelist_ports" comment:"ports which not relations with recons (exp. 22, 80, 443 and other)"`
+	BlacklistPorts []uint64 `yaml:"blacklist_ports" comment:"ports which must ban ip when scanned at once"`
+}
+
 type ResourceMonitorConfig struct {
 	Enabled              bool           `yaml:"enabled"`
 	CpuUsagePersentage   ResourceFields `yaml:"cpu_usage_persentage" comment:"cpu usage of the whole machine, percents"`
@@ -59,6 +68,10 @@ type ResourceMonitorConfig struct {
 	TrafficUsageMBs      ResourceFields `yaml:"traffic_usage_mbs" comment:"network traffic in and out, megabytes per second"`
 	DiskUsageIOps        ResourceFields `yaml:"disk_usage_iops" comment:"disk reads and writes, operations per second"`
 	OutputTopSnapshotDir string         `yaml:"output_top_snaphot_dir" comment:"the snapshots of the processes are written here, one <datetime>.sp file per alert"`
+}
+
+type EbpfConfig struct {
+	NetworkAntirecon EbpfNetworkAntireconConfig `yaml:"network_antirecon" comment:"tcp and udp port antiscan"`
 }
 
 type Config struct {
@@ -69,6 +82,7 @@ type Config struct {
 	WebBruteMonitor    WebBruteMonitorConfig `yaml:"web_brute_monitor" comment:"brute force of the login pages of the web server"`
 	DatabaseMonitor    DatabaseMonitorConfig `yaml:"database_monitor" comment:"failed logins into the database"`
 	ResourceMonitor    ResourceMonitorConfig `yaml:"resource_monitor" comment:"cpu, ram, traffic and disk of the machine, alerts only, nothing is ever banned by it"`
+	EbpfMonitors       EbpfConfig            `yaml:"ebpf_monitors" comment:"kernel level monitors"`
 }
 
 const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
@@ -143,6 +157,16 @@ func New() *Config {
 				Alert:   0,
 			},
 			OutputTopSnapshotDir: "/var/log/open-defender/",
+		},
+		EbpfMonitors: EbpfConfig{
+			NetworkAntirecon: EbpfNetworkAntireconConfig{
+				Mode:           "disabled",
+				PortsCount:     10,
+				WindowSeconds:  300,
+				BanSeconds:     900,
+				WhitelistPorts: []uint64{22, 80, 443, 5432, 3306},
+				BlacklistPorts: []uint64{},
+			},
 		},
 	}
 	return config
