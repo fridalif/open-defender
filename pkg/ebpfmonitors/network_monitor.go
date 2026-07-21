@@ -33,7 +33,7 @@ type networkMonitor struct {
 }
 
 type NetworkMonitor interface {
-	Run()
+	Run() error
 }
 
 func NewNetworkMonitor(ctx context.Context, cancel context.CancelFunc, cfg config.EbpfNetworkAntireconConfig, bp banpool.BanPool, logFunction func(message string, afterAction func())) NetworkMonitor {
@@ -48,9 +48,9 @@ func NewNetworkMonitor(ctx context.Context, cancel context.CancelFunc, cfg confi
 
 type portSet map[uint16]struct{}
 
-func (nm *networkMonitor) Run() {
+func (nm *networkMonitor) Run() error {
 	if nm.cfg.Mode == "disabled" {
-		return
+		return nil
 	}
 
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -59,22 +59,19 @@ func (nm *networkMonitor) Run() {
 
 	objs := gobpfs.NetworkMonitorObjects{}
 	if err := gobpfs.LoadNetworkMonitorObjects(&objs, nil); err != nil {
-		log.Println("ebpfmonitors.Run() -> ", err)
-		return
+		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantLoadObjects, err)
 	}
 	defer objs.Close()
 
 	tp, err := link.Tracepoint("tcp", "tcp_send_reset", objs.TpTcpSendReset, nil)
 	if err != nil {
-		log.Println("ebpfmonitors.Run() -> ", err)
-		return
+		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantAttachProgram, err)
 	}
 	defer tp.Close()
 
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		log.Println("ebpfmonitors.Run() -> ", err)
-		return
+		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantOpenRingbuf, err)
 	}
 	defer reader.Close()
 
@@ -93,7 +90,7 @@ func (nm *networkMonitor) Run() {
 		record, err := reader.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
-				return
+				return nil
 			}
 			log.Println("ebpfmonitors.Run() -> ", err)
 			continue

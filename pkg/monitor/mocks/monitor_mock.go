@@ -66,6 +66,20 @@ func (mr *MockMonitorHubMockRecorder) RunMonitoring() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunMonitoring", reflect.TypeOf((*MockMonitorHub)(nil).RunMonitoring))
 }
 
+// RunNetworkMonitor mocks base method.
+func (m *MockMonitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RunNetworkMonitor", nc)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RunNetworkMonitor indicates an expected call of RunNetworkMonitor.
+func (mr *MockMonitorHubMockRecorder) RunNetworkMonitor(nc any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunNetworkMonitor", reflect.TypeOf((*MockMonitorHub)(nil).RunNetworkMonitor), nc)
+}
+
 // RunResourceMonitor mocks base method.
 func (m *MockMonitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error {
 	m.ctrl.T.Helper()

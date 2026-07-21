@@ -132,7 +132,9 @@ func TestRunDisabled(t *testing.T) {
 	alerted := false
 	logFunction := func(string, func()) { alerted = true }
 	nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "disabled"}, nil, logFunction)
-	nm.Run()
+	if err := nm.Run(); err != nil {
+		t.Fatalf("error = %v", err)
+	}
 	if alerted {
 		t.Error("disabled monitor produced an alert")
 	}

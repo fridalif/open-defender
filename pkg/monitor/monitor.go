@@ -8,6 +8,7 @@ import (
 	"log"
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
+	"open-defender/pkg/ebpfmonitors"
 	"regexp"
 	"slices"
 	"sync"
@@ -30,6 +31,7 @@ type MonitorHub interface {
 	RunMonitoring()
 	RunBaseMonitor(name string, bm *config.BaseFields) error
 	RunResourceMonitor(rm *config.ResourceMonitorConfig) error
+	RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error
 }
 
 type monitorHub struct {
@@ -80,6 +82,11 @@ func (mh *monitorHub) RunMonitoring() {
 			log.Println(err.Error())
 		}
 	})
+	mh.wg.Go(func() {
+		if err := mh.RunNetworkMonitor(&mh.cfg.EbpfMonitors.NetworkAntirecon); err != nil {
+			log.Println(err.Error())
+		}
+	})
 	mh.wg.Wait()
 }
 
@@ -114,6 +121,13 @@ var goRun = func(f func()) { go f() }
 func (mh *monitorHub) alert(critLevel int, message string, afterAction func()) {
 	log.Printf("<%d>%s\n", critLevel, message)
 	goRun(afterAction)
+}
+
+func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
+	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, afterAction func()) {
+		mh.alert(journalInfo, message, afterAction)
+	})
+	return nm.Run()
 }
 
 func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
