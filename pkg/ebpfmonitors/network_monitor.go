@@ -110,7 +110,7 @@ func (nm *networkMonitor) Run() {
 		}
 
 		if _, listed := blacklist[event.DestPort]; listed {
-			nm.report(ip, fmt.Sprintf("ebpf antirecon: ip %s hit blacklisted port %d", ip, event.DestPort))
+			nm.report(ip, fmt.Sprintf("network_antirecon -> ip %s hit blacklisted port %d", ip, event.DestPort))
 			continue
 		}
 
@@ -122,7 +122,7 @@ func (nm *networkMonitor) Run() {
 		ports[event.DestPort] = struct{}{}
 
 		if nm.cfg.PortsCount > 0 && uint64(len(ports)) >= nm.cfg.PortsCount {
-			nm.report(ip, fmt.Sprintf("ebpf antirecon: ip %s scanned %d ports in %ds window", ip, len(ports), nm.cfg.WindowSeconds))
+			nm.report(ip, fmt.Sprintf("network_antirecon -> ip %s scanned %d ports in %ds window", ip, len(ports), nm.cfg.WindowSeconds))
 			ipPortsMap.Delete(ip)
 		}
 	}

@@ -41,17 +41,17 @@ func (m *MockMonitorHub) EXPECT() *MockMonitorHubMockRecorder {
 }
 
 // RunBaseMonitor mocks base method.
-func (m *MockMonitorHub) RunBaseMonitor(bm *config.BaseFields) error {
+func (m *MockMonitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RunBaseMonitor", bm)
+	ret := m.ctrl.Call(m, "RunBaseMonitor", name, bm)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RunBaseMonitor indicates an expected call of RunBaseMonitor.
-func (mr *MockMonitorHubMockRecorder) RunBaseMonitor(bm any) *gomock.Call {
+func (mr *MockMonitorHubMockRecorder) RunBaseMonitor(name, bm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunBaseMonitor", reflect.TypeOf((*MockMonitorHub)(nil).RunBaseMonitor), bm)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunBaseMonitor", reflect.TypeOf((*MockMonitorHub)(nil).RunBaseMonitor), name, bm)
 }
 
 // RunMonitoring mocks base method.
