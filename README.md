@@ -13,7 +13,7 @@ Objectives:
 - [x] Database Monitor (Antibrute)
 - [x] Resource Monitor with top'ing proccesses in overloads
 - [ ] eBPF Monitoring
-    - [ ] Network Monitor (AntiRecon)
+    - [x] Network Monitor (AntiRecon)
     - [ ] Command Execution (with block for definite users)
     - [ ] New Kernel Modules (with block)
     - [ ] New Crontabs (with block)
@@ -24,6 +24,35 @@ Objectives:
     - [ ] Weak Configs
     - [ ] Weak Passwords
     - [ ]  ...
+
+## Installation
+
+### Quick install
+
+Fetch the latest release for your architecture into `/usr/bin/open-defender`:
+
+```sh
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)        ARCH=amd64 ;;
+  i386|i686)     ARCH=386 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  armv7l|armv6l) ARCH=arm32 ;;
+  *) echo "Unknown architecture: $ARCH"; exit 1 ;;
+esac
+sudo curl -L -o /usr/bin/open-defender \
+  https://github.com/fridalif/open-defender/releases/latest/download/open-defender_$ARCH
+sudo chmod +x /usr/bin/open-defender
+```
+
+Then install it as a systemd service and start it:
+
+```sh
+sudo open-defender -i
+```
+
+The service reads `/etc/open-defender/config.yaml`; check it with `-t` and see the active monitors
+with `-s` (see [Usage](#usage) below). Later releases are picked up with `sudo open-defender -u`.
 
 ## Usage
 
