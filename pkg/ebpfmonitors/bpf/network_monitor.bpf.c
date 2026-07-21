@@ -1,20 +1,18 @@
 #include "types.h"
 #include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
-#ifndef IPPROTO_TCP
-#define IPPROTO_TCP 6
-#endif
-#ifndef IPPROTO_UDP
-#define IPPROTO_UDP 17
-#endif
+#define TCP_ESTABLISHED 1
+#define TCP_SYN_SENT    2
+#define TCP_SYN_RECV    3
+#define TCP_CLOSE       7
+#define TCP_LISTEN      10
+#define TCP_NEW_SYN_RECV 12
 
 struct event {
-	__u32 saddr; 
-	__u16 dport; 
+	__u32 saddr;
+	__u16 dport;
 };
 
 struct {
@@ -22,61 +20,21 @@ struct {
 	__uint(max_entries, 256 * 1024);
 } events SEC(".maps");
 
-SEC("kprobe/tcp_v4_send_reset")
-int BPF_KPROBE(kprobe_tcp_v4_send_reset, struct sock *sk, struct sk_buff *skb)
+SEC("tracepoint/tcp/tcp_send_reset")
+int tp_tcp_send_reset(struct trace_event_raw_tcp_send_reset *ctx)
 {
-	if (!skb)
-		return 0;
-
-	void *head;
-	__u16 net_off, trans_off;
-
-	if (bpf_core_read(&head, sizeof(head), &skb->head))
-		return 0;
-	if (bpf_core_read(&net_off, sizeof(net_off), &skb->network_header))
-		return 0;
-	if (bpf_core_read(&trans_off, sizeof(trans_off), &skb->transport_header))
-		return 0;
-
-	struct iphdr *iph = (struct iphdr *)(head + net_off);
-	struct tcphdr *tcph = (struct tcphdr *)(head + trans_off);
-
 	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
 	if (!e)
 		return 0;
 
-	bpf_core_read(&e->saddr, sizeof(e->saddr), &iph->saddr);
-	bpf_core_read(&e->dport, sizeof(e->dport), &tcph->dest);
+	__u16 sport = 0;
+	__u32 dip = 0;
 
-	bpf_ringbuf_submit(e, 0);
-	return 0;
-}
+	__builtin_memcpy(&sport, &ctx->saddr[2], sizeof(sport));
+	__builtin_memcpy(&dip, &ctx->daddr[4], sizeof(dip));
 
-SEC("kprobe/udp_rcv")
-int BPF_KPROBE(kprobe_udp_rcv, struct sk_buff *skb)
-{
-	if (!skb)
-		return 0;
-
-	void *head;
-	__u16 net_off, trans_off;
-
-	if (bpf_core_read(&head, sizeof(head), &skb->head))
-		return 0;
-	if (bpf_core_read(&net_off, sizeof(net_off), &skb->network_header))
-		return 0;
-	if (bpf_core_read(&trans_off, sizeof(trans_off), &skb->transport_header))
-		return 0;
-
-	struct iphdr *iph = (struct iphdr *)(head + net_off);
-	struct udphdr *udph = (struct udphdr *)(head + trans_off);
-
-	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
-		return 0;
-
-	bpf_core_read(&e->saddr, sizeof(e->saddr), &iph->saddr);
-	bpf_core_read(&e->dport, sizeof(e->dport), &udph->dest);
+	e->saddr = dip;
+	e->dport = sport;
 
 	bpf_ringbuf_submit(e, 0);
 	return 0;
