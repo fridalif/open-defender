@@ -8,6 +8,7 @@ import (
 	"log"
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
+	"open-defender/pkg/ebpfmonitors"
 	"regexp"
 	"slices"
 	"sync"
@@ -28,8 +29,9 @@ var (
 
 type MonitorHub interface {
 	RunMonitoring()
-	RunBaseMonitor(bm *config.BaseFields) error
+	RunBaseMonitor(name string, bm *config.BaseFields) error
 	RunResourceMonitor(rm *config.ResourceMonitorConfig) error
+	RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error
 }
 
 type monitorHub struct {
@@ -58,21 +60,30 @@ func (mh *monitorHub) RunMonitoring() {
 		log.Println(err.Error())
 	}
 
-	baseMonitors := []*config.BaseFields{
-		&mh.cfg.SSHMonitor.BaseFields,
-		&mh.cfg.WebBruteMonitor.BaseFields,
-		&mh.cfg.WebReconMonitor.BaseFields,
-		&mh.cfg.DatabaseMonitor.BaseFields,
+	baseMonitors := []struct {
+		name string
+		bm   *config.BaseFields
+	}{
+		{"ssh_monitor", &mh.cfg.SSHMonitor.BaseFields},
+		{"web_brute_monitor", &mh.cfg.WebBruteMonitor.BaseFields},
+		{"web_recon_monitor", &mh.cfg.WebReconMonitor.BaseFields},
+		{"database_monitor", &mh.cfg.DatabaseMonitor.BaseFields},
 	}
+
 	for _, mon := range baseMonitors {
 		mh.wg.Go(func() {
-			if err := mh.RunBaseMonitor(mon); err != nil {
+			if err := mh.RunBaseMonitor(mon.name, mon.bm); err != nil {
 				log.Println(err.Error())
 			}
 		})
 	}
 	mh.wg.Go(func() {
 		if err := mh.RunResourceMonitor(&mh.cfg.ResourceMonitor); err != nil {
+			log.Println(err.Error())
+		}
+	})
+	mh.wg.Go(func() {
+		if err := mh.RunNetworkMonitor(&mh.cfg.EbpfMonitors.NetworkAntirecon); err != nil {
 			log.Println(err.Error())
 		}
 	})
@@ -112,7 +123,14 @@ func (mh *monitorHub) alert(critLevel int, message string, afterAction func()) {
 	goRun(afterAction)
 }
 
-func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
+func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
+	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, afterAction func()) {
+		mh.alert(journalInfo, message, afterAction)
+	})
+	return nm.Run()
+}
+
+func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 	if bm.Mode == "disabled" {
 		return nil
 	}
@@ -148,7 +166,7 @@ func (mh *monitorHub) RunBaseMonitor(bm *config.BaseFields) error {
 					}
 				}
 			}
-			mh.alert(journalInfo, fmt.Sprintf("found offenders ip %s while scanning %s: %s-%s", ip, bm.Engine, bm.LogPath, bm.UnitName), action)
+			mh.alert(journalInfo, fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName), action)
 			counter = 0
 		}
 		ipAttemptsMap.Store(ip, counter)
@@ -221,7 +239,7 @@ func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) err
 
 func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) {
 	if limits.Alert != 0 && value >= float64(limits.Alert) {
-		message := fmt.Sprintf("%s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
+		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
 
 		mh.alert(journalAlert, message, func() {
 			if err := mh.saveSnapshot(snapshotDir); err != nil {
@@ -233,7 +251,7 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 	}
 
 	if limits.Warning != 0 && value >= float64(limits.Warning) {
-		message := fmt.Sprintf("%s is %.2f%s, warning limit is %d%s", name, value, unit, limits.Warning, unit)
+		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, warning limit is %d%s", name, value, unit, limits.Warning, unit)
 
 		mh.alert(journalWarning, message, func() {})
 	}

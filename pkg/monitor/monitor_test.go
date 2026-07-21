@@ -138,14 +138,14 @@ func TestCheckLimits(t *testing.T) {
 
 func TestRunBaseMonitor(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) {
-		if err := newHub(t, config.New(), nil).RunBaseMonitor(&config.BaseFields{Mode: "disabled"}); err != nil {
+		if err := newHub(t, config.New(), nil).RunBaseMonitor("test", &config.BaseFields{Mode: "disabled"}); err != nil {
 			t.Fatalf("error = %v", err)
 		}
 	})
 
 	t.Run("bad pattern", func(t *testing.T) {
 		mh := newHub(t, config.New(), nil)
-		if err := mh.RunBaseMonitor(&config.BaseFields{Mode: "logger", Pattern: "([", WindowSeconds: 3600}); !errors.Is(err, ErrCompileRegexp) {
+		if err := mh.RunBaseMonitor("test", &config.BaseFields{Mode: "logger", Pattern: "([", WindowSeconds: 3600}); !errors.Is(err, ErrCompileRegexp) {
 			t.Fatalf("error = %v, want ErrCompileRegexp", err)
 		}
 	})
@@ -153,7 +153,7 @@ func TestRunBaseMonitor(t *testing.T) {
 	t.Run("unknown engine", func(t *testing.T) {
 		mh := newHub(t, config.New(), nil)
 		bm := &config.BaseFields{Mode: "logger", Engine: "smoke", Pattern: `(?P<ip>\S+)`, WindowSeconds: 3600}
-		if err := mh.RunBaseMonitor(bm); !errors.Is(err, ErrEngineNotFound) {
+		if err := mh.RunBaseMonitor("test", bm); !errors.Is(err, ErrEngineNotFound) {
 			t.Fatalf("error = %v, want ErrEngineNotFound", err)
 		}
 	})
@@ -162,7 +162,7 @@ func TestRunBaseMonitor(t *testing.T) {
 		stubStartSource(t, feedLines("from 5.6.7.8", "from 5.6.7.8"))
 		mh := newHub(t, config.New(), nil)
 		bm := &config.BaseFields{Mode: "logger", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 2, WindowSeconds: 3600}
-		if err := mh.RunBaseMonitor(bm); err != nil {
+		if err := mh.RunBaseMonitor("test", bm); err != nil {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -173,7 +173,7 @@ func TestRunBaseMonitor(t *testing.T) {
 		cfg.IPWhiteList = []string{"9.9.9.9"}
 		mh := newHub(t, cfg, nil)
 		bm := &config.BaseFields{Mode: "logger", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 1, WindowSeconds: 3600}
-		if err := mh.RunBaseMonitor(bm); err != nil {
+		if err := mh.RunBaseMonitor("test", bm); err != nil {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -187,7 +187,7 @@ func TestRunBaseMonitor(t *testing.T) {
 
 		mh := newHub(t, config.New(), bp)
 		bm := &config.BaseFields{Mode: "blocker", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 2, WindowSeconds: 3600, BanSeconds: 60}
-		if err := mh.RunBaseMonitor(bm); err != nil {
+		if err := mh.RunBaseMonitor("test", bm); err != nil {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -202,7 +202,7 @@ func TestRunBaseMonitor(t *testing.T) {
 
 		mh := newHub(t, config.New(), bp)
 		bm := &config.BaseFields{Mode: "blocker", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 2, WindowSeconds: 3600, BanSeconds: 60}
-		if err := mh.RunBaseMonitor(bm); err != nil {
+		if err := mh.RunBaseMonitor("test", bm); err != nil {
 			t.Fatalf("error = %v", err)
 		}
 	})
