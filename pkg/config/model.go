@@ -75,10 +75,11 @@ type EbpfConfig struct {
 }
 
 type ExporterConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	EndpointAddress string `yaml:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
-	UserID          string `yaml:"user_id" comment:"your user_id from dashboard"`     //must be uuid.UUID
-	ConfigID        string `yaml:"config_id" comment:"your config_id from dashboard"` //must be uuid.UUID
+	Enabled              bool   `yaml:"enabled"`
+	EndpointAddress      string `yaml:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
+	UserID               string `yaml:"user_id" comment:"your user_id from dashboard"`     //must be uuid.UUID
+	ConfigID             string `yaml:"config_id" comment:"your config_id from dashboard"` //must be uuid.UUID
+	EndpointRsaPublicKey string `yaml:"endpoint_rsa_public_key" comment:"dashboard public key for e2e encryption"`
 }
 
 type Config struct {
