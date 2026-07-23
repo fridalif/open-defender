@@ -74,9 +74,17 @@ type EbpfConfig struct {
 	NetworkAntirecon EbpfNetworkAntireconConfig `yaml:"network_antirecon" comment:"tcp and udp port antiscan"`
 }
 
+type ExporterConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	EndpointAddress string `yaml:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
+	UserID          string `yaml:"user_id" comment:"your user_id from dashboard"`     //must be uuid.UUID
+	ConfigID        string `yaml:"config_id" comment:"your config_id from dashboard"` //must be uuid.UUID
+}
+
 type Config struct {
 	IPWhiteList        []string              `yaml:"ip_whitelist" comment:"these addresses are never banned, the addresses of the machine itself are put here on the first run"`
 	BlockedIPsDatabase string                `yaml:"blocked_ips_database" comment:"the bans outlive a restart of the daemon, they are kept here"`
+	Exporter           ExporterConfig        `yaml:"exporter" comment:"settings for export events to dashboard"`
 	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor" comment:"failed ssh logins"`
 	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor" comment:"scanning of the web server for the paths that are not there"`
 	WebBruteMonitor    WebBruteMonitorConfig `yaml:"web_brute_monitor" comment:"brute force of the login pages of the web server"`
@@ -90,6 +98,12 @@ const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
 func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
+		Exporter: ExporterConfig{
+			Enabled:         false,
+			EndpointAddress: "",
+			UserID:          "",
+			ConfigID:        "",
+		},
 		SSHMonitor: SSHMonitorConfig{
 			BaseFields: BaseFields{
 				Mode:          "logger",
