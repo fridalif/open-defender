@@ -101,7 +101,7 @@ func New() *Config {
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
 		Exporter: ExporterConfig{
 			Enabled:              false,
-			EndpointAddress:      "connector.light-defender.ru (get this in dashboard.light-defender.ru)",
+			EndpointAddress:      "wss://connector.light-defender.ru/ (get this in dashboard.light-defender.ru)",
 			UserID:               "your_id (get this in dashboard.light-defender.ru)",
 			ConfigID:             "config_id (get this in dashboard.light-defender.ru)",
 			EndpointRsaPublicKey: "rsa_pub_key (get this in dashboard.light-defender.ru)",
