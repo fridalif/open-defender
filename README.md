@@ -131,6 +131,11 @@ put back should the new one fail to start.
 sudo open-defender -r
 ```
 
+## Agent protocol
+
+The messages the agent exchanges with the exporter endpoint over WebSocket — envelope format,
+encryption, and every operation — are documented in [CLIENT.md](./CLIENT.md).
+
 ## Building
 
 Requires Go 1.25+ and a C compiler (`gcc`), since the SQLite driver is a cgo package.
