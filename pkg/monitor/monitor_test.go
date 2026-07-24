@@ -67,7 +67,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 
 func TestNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	if New(config.New(), mocks.NewMockBanPool(ctrl)) == nil {
+	if New(config.New(), mocks.NewMockBanPool(ctrl), t.TempDir()+"/config.yaml") == nil {
 		t.Fatal("New() returned nil")
 	}
 }

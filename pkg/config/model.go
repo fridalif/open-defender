@@ -21,77 +21,77 @@ var (
 )
 
 type BaseFields struct {
-	Mode          string `yaml:"mode" comment:"disabled, logger, blocker"`
-	Engine        string `yaml:"engine" comment:"syslog, journal, docker"`
-	LogPath       string `yaml:"log_path" comment:"path to the log file, used by the syslog engine only"`
-	UnitName      string `yaml:"unit_name" comment:"systemd unit or container name, used by the journal and docker engines"`
-	Tries         uint64 `yaml:"tries" comment:"how many hits within the window get the ip banned"`
-	WindowSeconds uint64 `yaml:"window_seconds" comment:"the hits are counted over this window, the counters are dropped afterwards"`
-	BanSeconds    uint64 `yaml:"ban_seconds" comment:"how long the ip stays banned, the blocker mode only"`
-	Pattern       string `yaml:"pattern" comment:"the line is a hit when it matches, the address is taken from the (?P<ip>...) group"`
+	Mode          string `yaml:"mode" json:"mode" comment:"disabled, logger, blocker"`
+	Engine        string `yaml:"engine" json:"engine" comment:"syslog, journal, docker"`
+	LogPath       string `yaml:"log_path" json:"log_path" comment:"path to the log file, used by the syslog engine only"`
+	UnitName      string `yaml:"unit_name" json:"unit_name" comment:"systemd unit or container name, used by the journal and docker engines"`
+	Tries         uint64 `yaml:"tries" json:"tries" comment:"how many hits within the window get the ip banned"`
+	WindowSeconds uint64 `yaml:"window_seconds" json:"window_seconds" comment:"the hits are counted over this window, the counters are dropped afterwards"`
+	BanSeconds    uint64 `yaml:"ban_seconds" json:"ban_seconds" comment:"how long the ip stays banned, the blocker mode only"`
+	Pattern       string `yaml:"pattern" json:"pattern" comment:"the line is a hit when it matches, the address is taken from the (?P<ip>...) group"`
 }
 
 type ResourceFields struct {
-	Warning uint64 `yaml:"warning" comment:"logged as a warning once the usage reaches it, zero turns the check off"`
-	Alert   uint64 `yaml:"alert" comment:"logged as an alert and saves a snapshot of the processes, zero turns the check off"`
+	Warning uint64 `yaml:"warning" json:"warning" comment:"logged as a warning once the usage reaches it, zero turns the check off"`
+	Alert   uint64 `yaml:"alert" json:"alert" comment:"logged as an alert and saves a snapshot of the processes, zero turns the check off"`
 }
 
 type SSHMonitorConfig struct {
-	BaseFields `yaml:",inline"`
+	BaseFields `yaml:",inline" json:",inline"`
 }
 
 type WebReconMonitorConfig struct {
-	BaseFields `yaml:",inline"`
+	BaseFields `yaml:",inline" json:",inline"`
 }
 
 type WebBruteMonitorConfig struct {
-	BaseFields `yaml:",inline"`
+	BaseFields `yaml:",inline" json:",inline"`
 }
 
 type DatabaseMonitorConfig struct {
-	BaseFields `yaml:",inline"`
+	BaseFields `yaml:",inline" json:",inline"`
 }
 
 type EbpfNetworkAntireconConfig struct {
-	Mode           string   `yaml:"mode" comment:"disabled, logger, blocker"`
-	PortsCount     uint64   `yaml:"ports_count" comment:"different ports count in window before ban"`
-	WindowSeconds  uint64   `yaml:"window_seconds" comment:"the hits are counted over this window, the counters are dropped afterwards"`
-	BanSeconds     uint64   `yaml:"ban_seconds" comment:"how long the ip stays banned, the blocker mode only"`
-	WhitelistPorts []uint64 `yaml:"whitelist_ports" comment:"ports which not relations with recons (exp. 22, 80, 443 and other)"`
-	BlacklistPorts []uint64 `yaml:"blacklist_ports" comment:"ports which must ban ip when scanned at once"`
+	Mode           string   `yaml:"mode" json:"mode" comment:"disabled, logger, blocker"`
+	PortsCount     uint64   `yaml:"ports_count" json:"ports_count" comment:"different ports count in window before ban"`
+	WindowSeconds  uint64   `yaml:"window_seconds" json:"window_seconds" comment:"the hits are counted over this window, the counters are dropped afterwards"`
+	BanSeconds     uint64   `yaml:"ban_seconds" json:"ban_seconds" comment:"how long the ip stays banned, the blocker mode only"`
+	WhitelistPorts []uint64 `yaml:"whitelist_ports" json:"whitelist_ports" comment:"ports which not relations with recons (exp. 22, 80, 443 and other)"`
+	BlacklistPorts []uint64 `yaml:"blacklist_ports" json:"blacklist_ports" comment:"ports which must ban ip when scanned at once"`
 }
 
 type ResourceMonitorConfig struct {
-	Enabled              bool           `yaml:"enabled"`
-	CpuUsagePersentage   ResourceFields `yaml:"cpu_usage_persentage" comment:"cpu usage of the whole machine, percents"`
-	RamUsagePersentage   ResourceFields `yaml:"ram_usage_persentage" comment:"ram usage of the whole machine, percents"`
-	TrafficUsageMBs      ResourceFields `yaml:"traffic_usage_mbs" comment:"network traffic in and out, megabytes per second"`
-	DiskUsageIOps        ResourceFields `yaml:"disk_usage_iops" comment:"disk reads and writes, operations per second"`
-	OutputTopSnapshotDir string         `yaml:"output_top_snaphot_dir" comment:"the snapshots of the processes are written here, one <datetime>.sp file per alert"`
+	Enabled              bool           `yaml:"enabled" json:"enabled"`
+	CpuUsagePersentage   ResourceFields `yaml:"cpu_usage_persentage" json:"cpu_usage_persentage" comment:"cpu usage of the whole machine, percents"`
+	RamUsagePersentage   ResourceFields `yaml:"ram_usage_persentage" json:"ram_usage_persentage" comment:"ram usage of the whole machine, percents"`
+	TrafficUsageMBs      ResourceFields `yaml:"traffic_usage_mbs" json:"traffic_usage_mbs" comment:"network traffic in and out, megabytes per second"`
+	DiskUsageIOps        ResourceFields `yaml:"disk_usage_iops" json:"disk_usage_iops" comment:"disk reads and writes, operations per second"`
+	OutputTopSnapshotDir string         `yaml:"output_top_snaphot_dir" json:"output_top_snaphot_dir" comment:"the snapshots of the processes are written here, one <datetime>.sp file per alert"`
 }
 
 type EbpfConfig struct {
-	NetworkAntirecon EbpfNetworkAntireconConfig `yaml:"network_antirecon" comment:"tcp and udp port antiscan"`
+	NetworkAntirecon EbpfNetworkAntireconConfig `yaml:"network_antirecon" json:"network_antirecon" comment:"tcp and udp port antiscan"`
 }
 
 type ExporterConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	EndpointAddress      string `yaml:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
-	UserID               string `yaml:"user_id" comment:"your user_id from dashboard"`
-	ConfigID             string `yaml:"config_id" comment:"your config_id from dashboard"`
-	EndpointRsaPublicKey string `yaml:"endpoint_rsa_public_key" comment:"dashboard public key for e2e encryption"`
+	Enabled              bool   `yaml:"enabled" json:"enabled"`
+	EndpointAddress      string `yaml:"endpoint_address" json:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
+	UserID               string `yaml:"user_id" json:"user_id" comment:"your user_id from dashboard"`
+	ConfigID             string `yaml:"config_id" json:"config_id" comment:"your config_id from dashboard"`
+	EndpointRsaPublicKey string `yaml:"endpoint_rsa_public_key" json:"endpoint_rsa_public_key" comment:"dashboard public key for e2e encryption"`
 }
 
 type Config struct {
-	IPWhiteList        []string              `yaml:"ip_whitelist" comment:"these addresses are never banned, the addresses of the machine itself are put here on the first run"`
-	BlockedIPsDatabase string                `yaml:"blocked_ips_database" comment:"the bans outlive a restart of the daemon, they are kept here"`
-	Exporter           ExporterConfig        `yaml:"exporter" comment:"settings for export events to dashboard"`
-	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor" comment:"failed ssh logins"`
-	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor" comment:"scanning of the web server for the paths that are not there"`
-	WebBruteMonitor    WebBruteMonitorConfig `yaml:"web_brute_monitor" comment:"brute force of the login pages of the web server"`
-	DatabaseMonitor    DatabaseMonitorConfig `yaml:"database_monitor" comment:"failed logins into the database"`
-	ResourceMonitor    ResourceMonitorConfig `yaml:"resource_monitor" comment:"cpu, ram, traffic and disk of the machine, alerts only, nothing is ever banned by it"`
-	EbpfMonitors       EbpfConfig            `yaml:"ebpf_monitors" comment:"kernel level monitors"`
+	IPWhiteList        []string              `yaml:"ip_whitelist" json:"ip_whitelist" comment:"these addresses are never banned, the addresses of the machine itself are put here on the first run"`
+	BlockedIPsDatabase string                `yaml:"blocked_ips_database" json:"blocked_ips_database" comment:"the bans outlive a restart of the daemon, they are kept here"`
+	Exporter           ExporterConfig        `yaml:"exporter" json:"exporter" comment:"settings for export events to dashboard"`
+	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor" json:"ssh_monitor" comment:"failed ssh logins"`
+	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor" json:"web_recon_monitor" comment:"scanning of the web server for the paths that are not there"`
+	WebBruteMonitor    WebBruteMonitorConfig `yaml:"web_brute_monitor" json:"web_brute_monitor" comment:"brute force of the login pages of the web server"`
+	DatabaseMonitor    DatabaseMonitorConfig `yaml:"database_monitor" json:"database_monitor" comment:"failed logins into the database"`
+	ResourceMonitor    ResourceMonitorConfig `yaml:"resource_monitor" json:"resource_monitor" comment:"cpu, ram, traffic and disk of the machine, alerts only, nothing is ever banned by it"`
+	EbpfMonitors       EbpfConfig            `yaml:"ebpf_monitors" json:"ebpf_monitors" comment:"kernel level monitors"`
 }
 
 const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
