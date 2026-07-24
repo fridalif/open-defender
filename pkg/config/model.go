@@ -77,8 +77,8 @@ type EbpfConfig struct {
 type ExporterConfig struct {
 	Enabled              bool   `yaml:"enabled"`
 	EndpointAddress      string `yaml:"endpoint_address" comment:"websocket endpoint address (exm. connector.light-defender.ru)"`
-	UserID               string `yaml:"user_id" comment:"your user_id from dashboard"`     //must be uuid.UUID
-	ConfigID             string `yaml:"config_id" comment:"your config_id from dashboard"` //must be uuid.UUID
+	UserID               string `yaml:"user_id" comment:"your user_id from dashboard"`
+	ConfigID             string `yaml:"config_id" comment:"your config_id from dashboard"`
 	EndpointRsaPublicKey string `yaml:"endpoint_rsa_public_key" comment:"dashboard public key for e2e encryption"`
 }
 
@@ -100,10 +100,11 @@ func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
 		Exporter: ExporterConfig{
-			Enabled:         false,
-			EndpointAddress: "",
-			UserID:          "",
-			ConfigID:        "",
+			Enabled:              false,
+			EndpointAddress:      "connector.light-defender.ru (get this in dashboard.light-defender.ru)",
+			UserID:               "your_id (get this in dashboard.light-defender.ru)",
+			ConfigID:             "config_id (get this in dashboard.light-defender.ru)",
+			EndpointRsaPublicKey: "rsa_pub_key (get this in dashboard.light-defender.ru)",
 		},
 		SSHMonitor: SSHMonitorConfig{
 			BaseFields: BaseFields{
