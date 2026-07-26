@@ -1,4 +1,4 @@
-# open-defender agent — message reference
+# open-defender agent: message reference
 
 What the agent (`open-defender/pkg/connector`) sends and what it expects back.
 
@@ -19,7 +19,7 @@ AES-256-GCM for the body, frame layout `[RSA(aes_key)][12-byte nonce][ciphertext
 | Server → agent | encrypted with the session public key handed over in `system/hello` |
 
 Because the key pair is per session, a reconnect makes every message from the
-previous session undecryptable — there is no long-lived agent secret on disk.
+previous session undecryptable; there is no long-lived agent secret on disk.
 
 > The agent is **not authenticated**: `user_id` and `config_id` are identifiers,
 > not secrets. Anyone holding a copy of `config.yaml` can impersonate this agent.
@@ -29,7 +29,7 @@ previous session undecryptable — there is no long-lived agent secret on disk.
 
 ## 2. Sent by the agent
 
-### 2.1 `system/hello` — opens the session
+### 2.1 `system/hello`: opens the session
 
 ```json
 {
@@ -48,7 +48,7 @@ previous session undecryptable — there is no long-lived agent secret on disk.
 
 **Expects:** `config/set_config` within 30 s. Anything else aborts the session.
 
-### 2.2 `system/ack` — result of a task
+### 2.2 `system/ack`: result of a task
 
 ```json
 {
@@ -68,7 +68,7 @@ request; it is `0` for the handshake.
 
 **Expects:** nothing.
 
-### 2.3 `config/config` — answer to `get_config`
+### 2.3 `config/config`: answer to `get_config`
 
 ```json
 {
@@ -88,7 +88,7 @@ is what makes the round trip work at all.
 
 **Expects:** nothing.
 
-### 2.4 `alert/raised` — a security event
+### 2.4 `alert/raised`: a security event
 
 ```json
 {
@@ -112,7 +112,7 @@ is what makes the round trip work at all.
 }
 ```
 
-One event per envelope. **Expects:** nothing — delivery is at-most-once, there
+One event per envelope. **Expects:** nothing: delivery is at-most-once, there
 is no acknowledgement and no resend.
 
 #### Event sources
@@ -123,9 +123,9 @@ is no acknowledgement and no resend.
 | `web_brute_monitor` | same, login pages of the web server | same |
 | `web_recon_monitor` | same, requests for paths that are not there | same |
 | `database_monitor` | same, failed database logins | same |
-| `network_antirecon` | eBPF sees a port scan or a hit on a blacklisted port | — |
+| `network_antirecon` | eBPF sees a port scan or a hit on a blacklisted port | none |
 | `resource_monitor` | cpu / ram / traffic / disk crossed a limit | `severity` (`warning` or `alert`), `details.metric`, `details.value`, `details.unit`, `details.limit` |
-| `ip_ban` | an ip was actually banned by the firewall | — |
+| `ip_ban` | an ip was actually banned by the firewall | none |
 
 `severity` is only ever set for `resource_monitor`. Severity levels for the
 dashboard are assigned by the connector, not by the agent.
@@ -157,7 +157,7 @@ Handling, in order:
    configuration starts with an empty whitelist; applying it verbatim would let
    a blocker-mode monitor ban the host itself.
 4. `Validate()`. On failure nothing is written and the ack carries `status: "error"`.
-5. Compare with the running configuration. If equal — ack `ok`, nothing else
+5. Compare with the running configuration. If equal, ack `ok`, nothing else
    happens. This is what stops the handshake from restarting the agent on every
    reconnect.
 6. Otherwise write `config.yaml`, send the ack, then request a restart.
@@ -205,7 +205,7 @@ monitorHub.RunMonitoring() sees the restart signal
 runCycle() starts every monitor and a new connector session
 ```
 
-The connector never writes the shared `*config.Config` itself — it only writes
+The connector never writes the shared `*config.Config` itself; it only writes
 the file. The reload happens in `RunMonitoring` after every monitor has stopped,
 so nothing reads the struct while it is being replaced.
 
