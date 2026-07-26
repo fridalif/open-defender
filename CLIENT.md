@@ -27,9 +27,59 @@ previous session undecryptable; there is no long-lived agent secret on disk.
 
 ---
 
-## 2. Sent by the agent
+## 2. Message exchange
 
-### 2.1 `system/hello`: opens the session
+```
+        agent                                    server (dashboard)
+          │                                              │
+          │  WebSocket dial: exporter.endpoint_address   │
+          │─────────────────────────────────────────────>│
+          │                                              │
+  session │  system/hello            task_id 0           │
+  RSA key │  payload.public_key = session public key     │
+  is born │─────────────────────────────────────────────>│
+          │                                              │
+          │           config/set_config   task_id N      │  must arrive
+          │<─────────────────────────────────────────────│  within 30 s
+          │                                              │
+          │  system/ack   task_id N   status ok | error  │
+          │─────────────────────────────────────────────>│
+          │                                              │
+  ════════╪══════════════ session is up ═════════════════╪════════
+          │                                              │
+          │  alert/raised   task_id 0   one event        │  no ack,
+          │─────────────────────────────────────────────>│  no resend
+          │                                              │
+          │           config/get_config   task_id M      │
+          │<─────────────────────────────────────────────│
+          │  config/config   task_id M                   │
+          │─────────────────────────────────────────────>│
+          │                                              │
+          │           config/set_config   task_id K      │
+          │<─────────────────────────────────────────────│
+          │  system/ack   task_id K                      │
+          │─────────────────────────────────────────────>│
+          │  config differs -> write config.yaml,        │
+          │  restart, new session, new key pair          │
+          │                                              │
+          │           ping   every 30 s                  │
+          │<─────────────────────────────────────────────│
+          │  pong                                        │
+          │─────────────────────────────────────────────>│
+          │                                              │
+```
+
+Everything above the double line is the handshake and it is fixed: `hello`,
+then `set_config`, then `ack`. Below the line the order is free, the agent
+pushes alerts whenever a monitor raises one and answers whatever the server
+sends. All frames in both directions are encrypted envelopes, only the
+direction decides which key is used (see section 1).
+
+---
+
+## 3. Sent by the agent
+
+### 3.1 `system/hello`: opens the session
 
 ```json
 {
@@ -48,7 +98,7 @@ previous session undecryptable; there is no long-lived agent secret on disk.
 
 **Expects:** `config/set_config` within 30 s. Anything else aborts the session.
 
-### 2.2 `system/ack`: result of a task
+### 3.2 `system/ack`: result of a task
 
 ```json
 {
@@ -68,7 +118,7 @@ request; it is `0` for the handshake.
 
 **Expects:** nothing.
 
-### 2.3 `config/config`: answer to `get_config`
+### 3.3 `config/config`: answer to `get_config`
 
 ```json
 {
@@ -88,7 +138,7 @@ is what makes the round trip work at all.
 
 **Expects:** nothing.
 
-### 2.4 `alert/raised`: a security event
+### 3.4 `alert/raised`: a security event
 
 ```json
 {
@@ -132,9 +182,9 @@ dashboard are assigned by the connector, not by the agent.
 
 ---
 
-## 3. Received by the agent
+## 4. Received by the agent
 
-### 3.1 `config/set_config`
+### 4.1 `config/set_config`
 
 ```json
 {
@@ -164,7 +214,7 @@ Handling, in order:
 
 **Replies:** `system/ack`.
 
-### 3.2 `config/get_config`
+### 4.2 `config/get_config`
 
 ```json
 {
@@ -178,13 +228,13 @@ Handling, in order:
 
 **Replies:** `config/config` carrying the running configuration.
 
-### 3.3 Anything else
+### 4.3 Anything else
 
 Logged and ignored; the session stays open.
 
 ---
 
-## 4. Restart on a new configuration
+## 5. Restart on a new configuration
 
 A configuration that arrived **from the server** and actually differs from the
 running one restarts the monitors through the context:
@@ -213,7 +263,7 @@ A restart means a new session: new RSA key pair, new `system/hello`.
 
 ---
 
-## 5. Timings and limits
+## 6. Timings and limits
 
 | | Value | Notes |
 |---|---|---|
@@ -231,7 +281,7 @@ the session to survive.
 
 ---
 
-## 6. Failure behaviour
+## 7. Failure behaviour
 
 | Situation | What the agent does |
 |---|---|
