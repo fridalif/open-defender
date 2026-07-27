@@ -1,7 +1,5 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -16,20 +14,24 @@ struct {
 } events SEC(".maps");
 
 SEC("tracepoint/tcp/tcp_send_reset")
-int tp_tcp_send_reset(void *ctx)
+int tp_tcp_send_reset(struct trace_event_raw_tcp_send_reset *ctx)
 {
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e)
         return 0;
 
-    __u16 sport = 0;
-    __u32 daddr = 0;
+    __u32 ip = 0;
+    ip |= (__u32)ctx->daddr[0] << 24;
+    ip |= (__u32)ctx->daddr[1] << 16;
+    ip |= (__u32)ctx->daddr[2] << 8;
+    ip |= (__u32)ctx->daddr[3];
 
-    bpf_core_read(&sport, sizeof(sport), (void *)ctx + offsetof(struct trace_event_raw_tcp_send_reset, saddr[2]));
-    bpf_core_read(&daddr, sizeof(daddr), (void *)ctx + offsetof(struct trace_event_raw_tcp_send_reset, daddr[4]));
+    __u16 port = 0;
+    port |= (__u16)ctx->daddr[4] << 8;
+    port |= (__u16)ctx->daddr[5];
 
-    e->saddr = daddr;
-    e->dport = sport;
+    e->saddr = ip;
+    e->dport = port;
 
     bpf_ringbuf_submit(e, 0);
     return 0;

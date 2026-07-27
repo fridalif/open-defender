@@ -17,7 +17,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -go-package=gobpfs -output-dir=gobpfs NetworkMonitor bpf/network_monitor.bpf.c -- -Ibpf -O2 -Wall -g
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -output-dir=gobpfs -target bpfel NetworkMonitor bpf/network_monitor.bpf.c -- -I./bpf -O2 -Wall -g
 
 type NetworkEvent struct {
 	SrcIP    uint32
