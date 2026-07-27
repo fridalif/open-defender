@@ -1,41 +1,36 @@
-#include "types.h"
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
-#define TCP_ESTABLISHED 1
-#define TCP_SYN_SENT    2
-#define TCP_SYN_RECV    3
-#define TCP_CLOSE       7
-#define TCP_LISTEN      10
-#define TCP_NEW_SYN_RECV 12
-
 struct event {
-	__u32 saddr;
-	__u16 dport;
+    __u32 saddr;
+    __u16 dport;
 };
 
 struct {
-	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 256 * 1024);
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024);
 } events SEC(".maps");
 
 SEC("tracepoint/tcp/tcp_send_reset")
-int tp_tcp_send_reset(struct trace_event_raw_tcp_send_reset *ctx)
+int tp_tcp_send_reset(void *ctx)
 {
-	struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
-		return 0;
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e)
+        return 0;
 
-	__u16 sport = 0;
-	__u32 dip = 0;
+    __u16 sport = 0;
+    __u32 daddr = 0;
 
-	__builtin_memcpy(&sport, &ctx->saddr[2], sizeof(sport));
-	__builtin_memcpy(&dip, &ctx->daddr[4], sizeof(dip));
+    bpf_core_read(&sport, sizeof(sport), (void *)ctx + offsetof(struct trace_event_raw_tcp_send_reset, saddr[2]));
+    bpf_core_read(&daddr, sizeof(daddr), (void *)ctx + offsetof(struct trace_event_raw_tcp_send_reset, daddr[4]));
 
-	e->saddr = dip;
-	e->dport = sport;
+    e->saddr = daddr;
+    e->dport = sport;
 
-	bpf_ringbuf_submit(e, 0);
-	return 0;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
 }
