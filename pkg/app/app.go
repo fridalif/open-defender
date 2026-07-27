@@ -183,6 +183,6 @@ func (a *app) resourceLimits(rm *config.ResourceMonitorConfig) string {
 }
 
 func (a *app) Run() {
-	mh := monitor.New(a.cfg, a.bp)
+	mh := monitor.New(a.cfg, a.bp, a.configPath)
 	mh.RunMonitoring()
 }

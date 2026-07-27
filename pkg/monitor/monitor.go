@@ -8,7 +8,9 @@ import (
 	"log"
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
+	"open-defender/pkg/connector"
 	"open-defender/pkg/ebpfmonitors"
+	"open-defender/pkg/protocol"
 	"regexp"
 	"slices"
 	"sync"
@@ -27,6 +29,8 @@ var (
 	memVirtual     = mem.VirtualMemoryWithContext
 )
 
+var ipPattern = regexp.MustCompile(`(?:\d{1,3}\.){3}\d{1,3}`)
+
 type MonitorHub interface {
 	RunMonitoring()
 	RunBaseMonitor(name string, bm *config.BaseFields) error
@@ -35,25 +39,50 @@ type MonitorHub interface {
 }
 
 type monitorHub struct {
-	cfg    *config.Config
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     *sync.WaitGroup
-	bp     banpool.BanPool
+	cfg        *config.Config
+	configPath string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         *sync.WaitGroup
+	bp         banpool.BanPool
+	exportChan chan protocol.Envelope
+	restart    chan struct{}
 }
 
-func New(cfg *config.Config, bp banpool.BanPool) MonitorHub {
+func New(cfg *config.Config, bp banpool.BanPool, configPath string) MonitorHub {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &monitorHub{
-		ctx:    ctx,
-		cancel: cancel,
-		cfg:    cfg,
-		wg:     new(sync.WaitGroup),
-		bp:     bp,
+		ctx:        ctx,
+		cancel:     cancel,
+		cfg:        cfg,
+		configPath: configPath,
+		wg:         new(sync.WaitGroup),
+		bp:         bp,
+		exportChan: make(chan protocol.Envelope, exportQueueSize),
+		restart:    make(chan struct{}, 1),
 	}
 }
 
 func (mh *monitorHub) RunMonitoring() {
+	for {
+		mh.runCycle()
+
+		select {
+		case <-mh.restart:
+			log.Println("configuration changed, restarting monitors")
+			if err := mh.cfg.LoadConfigReadOnly(mh.configPath); err != nil {
+				log.Println(err.Error())
+				return
+			}
+			mh.ctx, mh.cancel = context.WithCancel(context.Background())
+			mh.wg = new(sync.WaitGroup)
+		default:
+			return
+		}
+	}
+}
+
+func (mh *monitorHub) runCycle() {
 	defer mh.cancel()
 
 	if err := mh.bp.RestoreBans(mh.ctx); err != nil {
@@ -64,10 +93,10 @@ func (mh *monitorHub) RunMonitoring() {
 		name string
 		bm   *config.BaseFields
 	}{
-		{"ssh_monitor", &mh.cfg.SSHMonitor.BaseFields},
-		{"web_brute_monitor", &mh.cfg.WebBruteMonitor.BaseFields},
-		{"web_recon_monitor", &mh.cfg.WebReconMonitor.BaseFields},
-		{"database_monitor", &mh.cfg.DatabaseMonitor.BaseFields},
+		{protocol.SourceSSHMonitor, &mh.cfg.SSHMonitor.BaseFields},
+		{protocol.SourceWebBruteMonitor, &mh.cfg.WebBruteMonitor.BaseFields},
+		{protocol.SourceWebReconMonitor, &mh.cfg.WebReconMonitor.BaseFields},
+		{protocol.SourceDatabaseMonitor, &mh.cfg.DatabaseMonitor.BaseFields},
 	}
 
 	for _, mon := range baseMonitors {
@@ -87,7 +116,51 @@ func (mh *monitorHub) RunMonitoring() {
 			log.Println(err.Error())
 		}
 	})
+	if mh.cfg.Exporter.Enabled && mh.exportChan != nil {
+		exporter := connector.New(mh.cfg, mh.configPath, mh.ctx, mh.cancel, mh.exportChan, mh.restart)
+		mh.wg.Go(exporter.Run)
+	}
 	mh.wg.Wait()
+}
+
+func (mh *monitorHub) export(event protocol.AlertEvent) {
+	if mh.exportChan == nil || !mh.cfg.Exporter.Enabled {
+		return
+	}
+	if event.HappenedAt.IsZero() {
+		event.HappenedAt = time.Now().UTC()
+	}
+	envelope, err := protocol.NewEnvelope(
+		protocol.ServiceAlert,
+		protocol.OpRaised,
+		mh.cfg.Exporter.ConfigID,
+		mh.cfg.Exporter.UserID,
+		0,
+		protocol.AlertPayload{Events: []protocol.AlertEvent{event}},
+	)
+	if err != nil {
+		log.Println(err.Error())
+		return
+	}
+	select {
+	case mh.exportChan <- *envelope:
+	default:
+		log.Println("export queue is full, dropping event")
+	}
+}
+
+func (mh *monitorHub) withBanEvent(ip string, mode string, afterAction func()) func() {
+	return func() {
+		afterAction()
+		if mode != modeBlocker || ip == "" {
+			return
+		}
+		mh.export(protocol.AlertEvent{
+			Source:  protocol.SourceIPBan,
+			IP:      ip,
+			Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+		})
+	}
 }
 
 func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
@@ -118,20 +191,27 @@ func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap
 
 var goRun = func(f func()) { go f() }
 
-func (mh *monitorHub) alert(critLevel int, message string, afterAction func()) {
-	log.Printf("<%d>%s\n", critLevel, message)
+func (mh *monitorHub) alert(critLevel int, event protocol.AlertEvent, afterAction func()) {
+	log.Printf("<%d>%s\n", critLevel, event.Message)
+	mh.export(event)
 	goRun(afterAction)
 }
 
 func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
 	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, afterAction func()) {
-		mh.alert(journalInfo, message, afterAction)
+		ip := ipPattern.FindString(message)
+		event := protocol.AlertEvent{
+			Source:  protocol.SourceNetworkAntirecon,
+			IP:      ip,
+			Message: message,
+		}
+		mh.alert(journalInfo, event, mh.withBanEvent(ip, nc.Mode, afterAction))
 	})
 	return nm.Run()
 }
 
 func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
-	if bm.Mode == "disabled" {
+	if bm.Mode == modeDisabled {
 		return nil
 	}
 	outputChan := make(chan string, 1000)
@@ -158,15 +238,27 @@ func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 		counter += uint64(1)
 		if counter >= bm.Tries {
 			action := func() {}
-			if bm.Mode == "blocker" {
+			if bm.Mode == modeBlocker {
 				action = func() {
 					err := mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
 					if err != nil {
 						log.Println(err.Error())
+						return
 					}
+					mh.export(protocol.AlertEvent{
+						Source:  protocol.SourceIPBan,
+						IP:      ip,
+						Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+					})
 				}
 			}
-			mh.alert(journalInfo, fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName), action)
+			event := protocol.AlertEvent{
+				Source:  name,
+				IP:      ip,
+				Message: fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName),
+				Details: map[string]any{"engine": bm.Engine, "source": bm.Source()},
+			}
+			mh.alert(journalInfo, event, action)
 			counter = 0
 		}
 		ipAttemptsMap.Store(ip, counter)
@@ -240,8 +332,14 @@ func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) err
 func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) {
 	if limits.Alert != 0 && value >= float64(limits.Alert) {
 		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
+		event := protocol.AlertEvent{
+			Source:   protocol.SourceResourceMonitor,
+			Severity: protocol.SeverityAlert,
+			Message:  message,
+			Details:  map[string]any{"metric": name, "value": value, "unit": unit, "limit": limits.Alert},
+		}
 
-		mh.alert(journalAlert, message, func() {
+		mh.alert(journalAlert, event, func() {
 			if err := mh.saveSnapshot(snapshotDir); err != nil {
 				log.Println(err.Error())
 			}
@@ -252,8 +350,14 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 
 	if limits.Warning != 0 && value >= float64(limits.Warning) {
 		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, warning limit is %d%s", name, value, unit, limits.Warning, unit)
+		event := protocol.AlertEvent{
+			Source:   protocol.SourceResourceMonitor,
+			Severity: protocol.SeverityWarning,
+			Message:  message,
+			Details:  map[string]any{"metric": name, "value": value, "unit": unit, "limit": limits.Warning},
+		}
 
-		mh.alert(journalWarning, message, func() {})
+		mh.alert(journalWarning, event, func() {})
 	}
 }
 

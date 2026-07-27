@@ -6,6 +6,14 @@
 
 Open Source Linux Servers complex tool for monitoring and security audit
 
+Optionally, the agent can export its events to **Light Defender Dashboard** over an end-to-end
+encrypted WebSocket connection: one place for the events of every server instead of a login on each
+of them. This is off by default and never required. Without the `exporter` section in
+`config.yaml` the agent runs completely on its own and connects nowhere, and even with it turned on
+an unreachable dashboard never holds up detection or banning. The protocol is documented in
+[CLIENT.md](./CLIENT.md), the product pages are at
+[light-defender.ru/open-defender](https://light-defender.ru/open-defender).
+
 Objectives:
 - [x] Service Installation
 - [x] SSH Monitor (AntiBrute)
@@ -130,6 +138,11 @@ put back should the new one fail to start.
 ```sh
 sudo open-defender -r
 ```
+
+## Agent protocol
+
+The messages the agent exchanges with the exporter endpoint over WebSocket, the envelope format,
+the encryption and every operation are documented in [CLIENT.md](./CLIENT.md).
 
 ## Building
 

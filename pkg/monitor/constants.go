@@ -28,3 +28,9 @@ const (
 	journalctlCommand = "journalctl"
 	maxLogLineSize    = 1024 * 1024
 )
+
+const (
+	modeDisabled    = "disabled"
+	modeBlocker     = "blocker"
+	exportQueueSize = 1024
+)
