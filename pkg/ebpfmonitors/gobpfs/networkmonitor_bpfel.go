@@ -16,8 +16,8 @@ import (
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	NetworkMonitorMapEvents          = "events"
-	NetworkMonitorProgTpTcpSendReset = "tp_tcp_send_reset"
+	NetworkMonitorMapEvents             = "events"
+	NetworkMonitorProgXdpNetworkMonitor = "xdp_network_monitor"
 )
 
 // LoadNetworkMonitor returns the embedded CollectionSpec for NetworkMonitor.
@@ -62,7 +62,7 @@ type NetworkMonitorSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type NetworkMonitorProgramSpecs struct {
-	TpTcpSendReset *ebpf.ProgramSpec `ebpf:"tp_tcp_send_reset"`
+	XdpNetworkMonitor *ebpf.ProgramSpec `ebpf:"xdp_network_monitor"`
 }
 
 // NetworkMonitorMapSpecs contains maps before they are loaded into the kernel.
@@ -117,12 +117,12 @@ type NetworkMonitorVariables struct {
 //
 // It can be passed to LoadNetworkMonitorObjects or ebpf.CollectionSpec.LoadAndAssign.
 type NetworkMonitorPrograms struct {
-	TpTcpSendReset *ebpf.Program `ebpf:"tp_tcp_send_reset"`
+	XdpNetworkMonitor *ebpf.Program `ebpf:"xdp_network_monitor"`
 }
 
 func (p *NetworkMonitorPrograms) Close() error {
 	return _NetworkMonitorClose(
-		p.TpTcpSendReset,
+		p.XdpNetworkMonitor,
 	)
 }
 

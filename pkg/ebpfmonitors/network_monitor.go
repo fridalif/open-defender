@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
 	ebpfmonitors "open-defender/pkg/ebpfmonitors/gobpfs"
@@ -63,12 +64,33 @@ func (nm *networkMonitor) Run() error {
 	}
 	defer objs.Close()
 
-	tp, err := link.Tracepoint("tcp", "tcp_send_reset", objs.TpTcpSendReset, nil)
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantAttachProgram, err)
 	}
-	defer tp.Close()
+	var xdpLinks []link.Link
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
 
+		l, err := link.AttachXDP(link.XDPOptions{
+			Program:   objs.XdpNetworkMonitor,
+			Interface: iface.Index,
+			Flags:     link.XDPGenericMode,
+		})
+		if err != nil {
+			log.Printf("ebpfmonitors.Run() -> skip XDP on %s: %v", iface.Name, err)
+			continue
+		}
+		xdpLinks = append(xdpLinks, l)
+	}
+
+	defer func() {
+		for _, l := range xdpLinks {
+			l.Close()
+		}
+	}()
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
 		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantOpenRingbuf, err)
@@ -105,7 +127,6 @@ func (nm *networkMonitor) Run() error {
 		if _, banned := whitelist[event.DestPort]; banned {
 			continue
 		}
-
 		if _, listed := blacklist[event.DestPort]; listed {
 			nm.report(ip, fmt.Sprintf("network_antirecon -> ip %s hit blacklisted port %d", ip, event.DestPort))
 			continue
