@@ -8,7 +8,7 @@ import (
 	"log"
 	"open-defender/pkg/banpool"
 	"open-defender/pkg/config"
-	"open-defender/pkg/ebpfmonitors/gobpfs"
+	ebpfmonitors "open-defender/pkg/ebpfmonitors/gobpfs"
 	"sync"
 	"time"
 
@@ -57,8 +57,8 @@ func (nm *networkMonitor) Run() error {
 		log.Println("ebpfmonitors.Run() -> ", err)
 	}
 
-	objs := gobpfs.NetworkMonitorObjects{}
-	if err := gobpfs.LoadNetworkMonitorObjects(&objs, nil); err != nil {
+	objs := ebpfmonitors.NetworkMonitorObjects{}
+	if err := ebpfmonitors.LoadNetworkMonitorObjects(&objs, nil); err != nil {
 		return fmt.Errorf("ebpfmonitors.Run() -> %w: %v", ErrCantLoadObjects, err)
 	}
 	defer objs.Close()
