@@ -41,11 +41,12 @@ func (m *MockBanPool) EXPECT() *MockBanPoolMockRecorder {
 }
 
 // BanIP mocks base method.
-func (m *MockBanPool) BanIP(ctx context.Context, ip string, banSeconds uint64) error {
+func (m *MockBanPool) BanIP(ctx context.Context, ip string, banSeconds uint64) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BanIP", ctx, ip, banSeconds)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // BanIP indicates an expected call of BanIP.

@@ -237,28 +237,35 @@ func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 		}
 		counter += uint64(1)
 		if counter >= bm.Tries {
+			wasBanned := false
 			action := func() {}
 			if bm.Mode == modeBlocker {
 				action = func() {
-					err := mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
+					wasBanned, err = mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
 					if err != nil {
 						log.Println(err.Error())
 						return
 					}
-					mh.export(protocol.AlertEvent{
-						Source:  protocol.SourceIPBan,
-						IP:      ip,
-						Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
-					})
+					if !wasBanned {
+						mh.export(protocol.AlertEvent{
+							Source:  protocol.SourceIPBan,
+							IP:      ip,
+							Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+						})
+					}
 				}
 			}
-			event := protocol.AlertEvent{
-				Source:  name,
-				IP:      ip,
-				Message: fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName),
-				Details: map[string]any{"engine": bm.Engine, "source": bm.Source()},
+
+			if !wasBanned {
+				event := protocol.AlertEvent{
+					Source:  name,
+					IP:      ip,
+					Message: fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName),
+					Details: map[string]any{"engine": bm.Engine, "source": bm.Source()},
+				}
+				mh.alert(journalInfo, event, action)
 			}
-			mh.alert(journalInfo, event, action)
+
 			counter = 0
 		}
 		ipAttemptsMap.Store(ip, counter)

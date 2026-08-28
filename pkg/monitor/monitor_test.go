@@ -183,7 +183,7 @@ func TestRunBaseMonitor(t *testing.T) {
 		stubStartSource(t, feedLines("from 5.6.7.8", "from 5.6.7.8"))
 		ctrl := gomock.NewController(t)
 		bp := mocks.NewMockBanPool(ctrl)
-		bp.EXPECT().BanIP(gomock.Any(), "5.6.7.8", uint64(60)).Return(nil)
+		bp.EXPECT().BanIP(gomock.Any(), "5.6.7.8", uint64(60)).Return(false, nil)
 
 		mh := newHub(t, config.New(), bp)
 		bm := &config.BaseFields{Mode: "blocker", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 2, WindowSeconds: 3600, BanSeconds: 60}
@@ -198,7 +198,7 @@ func TestRunBaseMonitor(t *testing.T) {
 		stubStartSource(t, feedLines("from 5.6.7.8", "from 5.6.7.8"))
 		ctrl := gomock.NewController(t)
 		bp := mocks.NewMockBanPool(ctrl)
-		bp.EXPECT().BanIP(gomock.Any(), "5.6.7.8", uint64(60)).Return(errors.New("boom"))
+		bp.EXPECT().BanIP(gomock.Any(), "5.6.7.8", uint64(60)).Return(false, errors.New("boom"))
 
 		mh := newHub(t, config.New(), bp)
 		bm := &config.BaseFields{Mode: "blocker", Engine: "syslog", Pattern: `from (?P<ip>(?:\d{1,3}\.){3}\d{1,3})`, Tries: 2, WindowSeconds: 3600, BanSeconds: 60}
