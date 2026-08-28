@@ -13,7 +13,7 @@ import (
 )
 
 type BanPool interface {
-	BanIP(ctx context.Context, ip string, banSeconds uint64) error
+	BanIP(ctx context.Context, ip string, banSeconds uint64) (bool, error)
 	UnbanIP(ip string) error
 	RestoreBans(ctx context.Context) error
 }
@@ -73,7 +73,7 @@ func (bp *banPool) RestoreBans(ctx context.Context) error {
 	return nil
 }
 
-func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) error {
+func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) (bool, error) {
 	bp.mutex.Lock()
 	defer bp.mutex.Unlock()
 
@@ -87,20 +87,20 @@ func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) erro
 
 	current, err := bp.repository.Get(ip)
 	if err != nil && !errors.Is(err, ErrBanNotFound) {
-		return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
+		return false, fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
 	}
 
 	if current != nil {
 		if err := bp.firewall.Ban(ip); err != nil {
-			return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
+			return true, fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
 		}
 
-		return bp.extendBan(current, ban.BannedUntil)
+		return true, bp.extendBan(current, ban.BannedUntil)
 	}
 
 	id, err := bp.repository.Add(ban)
 	if err != nil {
-		return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
+		return false, fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
 	}
 
 	ban.ID = id
@@ -110,12 +110,12 @@ func (bp *banPool) BanIP(ctx context.Context, ip string, banSeconds uint64) erro
 			log.Println(deleteErr)
 		}
 
-		return fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
+		return false, fmt.Errorf("banpool.BanIP(ip: %s) -> %w", ip, err)
 	}
 
 	go bp.waitUnban(ctx, ban)
 
-	return nil
+	return false, nil
 }
 
 func (bp *banPool) UnbanIP(ip string) error {
