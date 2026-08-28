@@ -148,14 +148,18 @@ func (nm *networkMonitor) Run() error {
 
 func (nm *networkMonitor) report(ip string, message string) {
 	afterAction := func() {}
+	wasBanned := false
 	if nm.cfg.Mode == "blocker" {
 		afterAction = func() {
-			if err := nm.bp.BanIP(nm.ctx, ip, nm.cfg.BanSeconds); err != nil {
+			if wasBannedInner, err := nm.bp.BanIP(nm.ctx, ip, nm.cfg.BanSeconds); err != nil {
+				wasBanned = wasBannedInner
 				log.Println(err.Error())
 			}
 		}
 	}
-	nm.logFunction(message, afterAction)
+	if !wasBanned {
+		nm.logFunction(message, afterAction)
+	}
 }
 
 func (nm *networkMonitor) clearMap(seconds uint64, clearingMap *sync.Map) {

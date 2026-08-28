@@ -57,7 +57,7 @@ func TestBanIP(t *testing.T) {
 		repo.EXPECT().Add(gomock.Any()).Return(int64(42), nil)
 		fw.EXPECT().Ban("1.2.3.4").Return(nil)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(cancelledContext(), "1.2.3.4", 0); err != nil {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(cancelledContext(), "1.2.3.4", 0); err != nil {
 			t.Fatalf("BanIP() error: %v", err)
 		}
 	})
@@ -68,7 +68,7 @@ func TestBanIP(t *testing.T) {
 		fw := mocks.NewMockFirewall(ctrl)
 		repo.EXPECT().Get("1.2.3.4").Return(nil, banpool.ErrCantGetBan)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantGetBan) {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantGetBan) {
 			t.Fatalf("BanIP() error = %v, want ErrCantGetBan", err)
 		}
 	})
@@ -80,7 +80,7 @@ func TestBanIP(t *testing.T) {
 		repo.EXPECT().Get("1.2.3.4").Return(nil, banpool.ErrBanNotFound)
 		repo.EXPECT().Add(gomock.Any()).Return(int64(0), banpool.ErrCantAddBan)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantAddBan) {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantAddBan) {
 			t.Fatalf("BanIP() error = %v, want ErrCantAddBan", err)
 		}
 	})
@@ -94,7 +94,7 @@ func TestBanIP(t *testing.T) {
 		fw.EXPECT().Ban("1.2.3.4").Return(banpool.ErrCantBanIP)
 		repo.EXPECT().Delete(int64(42)).Return(banpool.ErrCantDeleteBan)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantBanIP) {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 60); !errors.Is(err, banpool.ErrCantBanIP) {
 			t.Fatalf("BanIP() error = %v, want ErrCantBanIP", err)
 		}
 	})
@@ -108,7 +108,7 @@ func TestBanIP(t *testing.T) {
 		fw.EXPECT().Ban("1.2.3.4").Return(nil)
 		repo.EXPECT().Update(gomock.Any()).Return(nil)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); err != nil {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); err != nil {
 			t.Fatalf("BanIP() error: %v", err)
 		}
 	})
@@ -122,7 +122,7 @@ func TestBanIP(t *testing.T) {
 		fw.EXPECT().Ban("1.2.3.4").Return(nil)
 		repo.EXPECT().Update(gomock.Any()).Return(banpool.ErrCantUpdateBan)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); !errors.Is(err, banpool.ErrCantUpdateBan) {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); !errors.Is(err, banpool.ErrCantUpdateBan) {
 			t.Fatalf("BanIP() error = %v, want ErrCantUpdateBan", err)
 		}
 	})
@@ -135,7 +135,7 @@ func TestBanIP(t *testing.T) {
 		repo.EXPECT().Get("1.2.3.4").Return(existing, nil)
 		fw.EXPECT().Ban("1.2.3.4").Return(nil)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 1); err != nil {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 1); err != nil {
 			t.Fatalf("BanIP() error: %v", err)
 		}
 	})
@@ -148,7 +148,7 @@ func TestBanIP(t *testing.T) {
 		repo.EXPECT().Get("1.2.3.4").Return(existing, nil)
 		fw.EXPECT().Ban("1.2.3.4").Return(banpool.ErrCantBanIP)
 
-		if err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); !errors.Is(err, banpool.ErrCantBanIP) {
+		if _, err := banpool.NewBanPoolForTest(repo, fw).BanIP(context.Background(), "1.2.3.4", 600); !errors.Is(err, banpool.ErrCantBanIP) {
 			t.Fatalf("BanIP() error = %v, want ErrCantBanIP", err)
 		}
 	})
