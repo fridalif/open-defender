@@ -97,7 +97,7 @@ func TestReport(t *testing.T) {
 	t.Run("blocker bans", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		bp := mocks.NewMockBanPool(ctrl)
-		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(nil)
+		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(false, nil)
 
 		logFunction := func(_ string, afterAction func()) { afterAction() }
 		nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "blocker", BanSeconds: 60}, bp, logFunction)
@@ -108,7 +108,7 @@ func TestReport(t *testing.T) {
 		buf := captureLog(t)
 		ctrl := gomock.NewController(t)
 		bp := mocks.NewMockBanPool(ctrl)
-		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(errors.New("boom"))
+		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(false, errors.New("boom"))
 
 		logFunction := func(_ string, afterAction func()) { afterAction() }
 		nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "blocker", BanSeconds: 60}, bp, logFunction)

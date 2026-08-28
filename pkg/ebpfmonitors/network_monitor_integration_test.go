@@ -34,11 +34,13 @@ func TestRunDetectsResetIntegration(t *testing.T) {
 	}
 
 	_ = rlimit.RemoveMemlock()
+
+	// ИСПРАВЛЕНО: используем правильное имя пакета gobpfs
 	probe := gobpfs.NetworkMonitorObjects{}
 	if err := gobpfs.LoadNetworkMonitorObjects(&probe, nil); err != nil {
 		t.Skipf("cannot load eBPF objects (kernel/BTF unsupported): %v", err)
 	}
-	probe.Close()
+	defer probe.Close()
 
 	port := closedLoopbackPort(t)
 
