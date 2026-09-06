@@ -21,7 +21,8 @@ jobs:
 
       - run: |
           go test -coverprofile=coverage.out -covermode=atomic ./...
-          grep -v '/mocks/' coverage.out > coverage.nomocks.out
+          # Generated mocks and bpf2go bindings are not maintained application code.
+          grep -v -E '/mocks/|/gobpfs/' coverage.out > coverage.nomocks.out
           pct=$(go tool cover -func=coverage.nomocks.out | awk '/^total:/{print substr($3, 1, length($3)-1)}')
           echo "COVERAGE=$pct" >> "$GITHUB_ENV"
 

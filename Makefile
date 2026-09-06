@@ -37,7 +37,7 @@ test-integration:
 .PHONY: cover
 cover:
 	$(GO) test -coverprofile=$(COVERFILE) -covermode=atomic $(PKGS)
-	grep -v '/mocks/' $(COVERFILE) > $(COVERFILE).nomocks
+	grep -v -E '/mocks/|/gobpfs/' $(COVERFILE) > $(COVERFILE).nomocks
 	$(GO) tool cover -func=$(COVERFILE).nomocks
 
 .PHONY: cover-html
@@ -47,7 +47,7 @@ cover-html: cover
 .PHONY: cover-integration
 cover-integration:
 	$(GO) test -tags=integration -coverprofile=$(COVERFILE) -covermode=atomic $(PKGS)
-	grep -v '/mocks/' $(COVERFILE) > $(COVERFILE).nomocks
+	grep -v -E '/mocks/|/gobpfs/' $(COVERFILE) > $(COVERFILE).nomocks
 	$(GO) tool cover -func=$(COVERFILE).nomocks
 
 .PHONY: vet
