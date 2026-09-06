@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"log"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"open-defender/pkg/banpool/mocks"
 	"open-defender/pkg/config"
@@ -126,6 +128,35 @@ func TestClearMap(t *testing.T) {
 	m := &sync.Map{}
 	m.Store("1.2.3.4", portSet{22: {}})
 	nm.clearMap(0, m) // отменённый контекст -> выход без сна
+}
+
+func TestClearMapRemovesEntries(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	nm := &networkMonitor{ctx: ctx}
+	m := &sync.Map{}
+	m.Store("1.2.3.4", portSet{22: {}})
+	done := make(chan struct{})
+	go func() {
+		nm.clearMap(0, m)
+		close(done)
+	}()
+
+	deadline := time.After(time.Second)
+	for {
+		_, exists := m.Load("1.2.3.4")
+		if !exists {
+			cancel()
+			<-done
+			return
+		}
+		select {
+		case <-deadline:
+			cancel()
+			t.Fatal("clearMap() did not remove map entries")
+		default:
+			runtime.Gosched()
+		}
+	}
 }
 
 func TestRunDisabled(t *testing.T) {
