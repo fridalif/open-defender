@@ -149,20 +149,6 @@ func (mh *monitorHub) export(event protocol.AlertEvent) {
 	}
 }
 
-func (mh *monitorHub) withBanEvent(ip string, mode string, afterAction func()) func() {
-	return func() {
-		afterAction()
-		if mode != modeBlocker || ip == "" {
-			return
-		}
-		mh.export(protocol.AlertEvent{
-			Source:  protocol.SourceIPBan,
-			IP:      ip,
-			Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
-		})
-	}
-}
-
 func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
 	matches := re.FindStringSubmatch(message)
 	if len(matches) == 0 {
@@ -198,14 +184,21 @@ func (mh *monitorHub) alert(critLevel int, event protocol.AlertEvent, afterActio
 }
 
 func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
-	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, afterAction func()) {
+	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, isNewBan bool) {
 		ip := ipPattern.FindString(message)
 		event := protocol.AlertEvent{
 			Source:  protocol.SourceNetworkAntirecon,
 			IP:      ip,
 			Message: message,
 		}
-		mh.alert(journalInfo, event, mh.withBanEvent(ip, nc.Mode, afterAction))
+		mh.alert(journalInfo, event, func() {})
+		if isNewBan {
+			mh.export(protocol.AlertEvent{
+				Source:  protocol.SourceIPBan,
+				IP:      ip,
+				Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+			})
+		}
 	})
 	return nm.Run()
 }
@@ -237,33 +230,31 @@ func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 		}
 		counter += uint64(1)
 		if counter >= bm.Tries {
-			wasBanned := false
-			action := func() {}
+			isNewBan := false
 			if bm.Mode == modeBlocker {
-				action = func() {
-					wasBanned, err = mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
-					if err != nil {
-						log.Println(err.Error())
-						return
-					}
-					if !wasBanned {
-						mh.export(protocol.AlertEvent{
-							Source:  protocol.SourceIPBan,
-							IP:      ip,
-							Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
-						})
-					}
+				alreadyBanned, err := mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
+				if err != nil {
+					log.Println(err.Error())
+				} else if !alreadyBanned {
+					isNewBan = true
 				}
 			}
 
-			if !wasBanned {
+			if bm.Mode != modeBlocker || isNewBan {
 				event := protocol.AlertEvent{
 					Source:  name,
 					IP:      ip,
 					Message: fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName),
 					Details: map[string]any{"engine": bm.Engine, "source": bm.Source()},
 				}
-				mh.alert(journalInfo, event, action)
+				mh.alert(journalInfo, event, func() {})
+				if isNewBan {
+					mh.export(protocol.AlertEvent{
+						Source:  protocol.SourceIPBan,
+						IP:      ip,
+						Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+					})
+				}
 			}
 
 			counter = 0

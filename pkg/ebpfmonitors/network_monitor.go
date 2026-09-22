@@ -30,14 +30,14 @@ type networkMonitor struct {
 	cancel      context.CancelFunc
 	cfg         config.EbpfNetworkAntireconConfig
 	bp          banpool.BanPool
-	logFunction func(message string, afterAction func())
+	logFunction func(message string, isNewBan bool)
 }
 
 type NetworkMonitor interface {
 	Run() error
 }
 
-func NewNetworkMonitor(ctx context.Context, cancel context.CancelFunc, cfg config.EbpfNetworkAntireconConfig, bp banpool.BanPool, logFunction func(message string, afterAction func())) NetworkMonitor {
+func NewNetworkMonitor(ctx context.Context, cancel context.CancelFunc, cfg config.EbpfNetworkAntireconConfig, bp banpool.BanPool, logFunction func(message string, isNewBan bool)) NetworkMonitor {
 	return &networkMonitor{
 		ctx:         ctx,
 		cancel:      cancel,
@@ -147,19 +147,19 @@ func (nm *networkMonitor) Run() error {
 }
 
 func (nm *networkMonitor) report(ip string, message string) {
-	afterAction := func() {}
-	wasBanned := false
+	isNewBan := false
 	if nm.cfg.Mode == "blocker" {
-		afterAction = func() {
-			if wasBannedInner, err := nm.bp.BanIP(nm.ctx, ip, nm.cfg.BanSeconds); err != nil {
-				wasBanned = wasBannedInner
-				log.Println(err.Error())
-			}
+		alreadyBanned, err := nm.bp.BanIP(nm.ctx, ip, nm.cfg.BanSeconds)
+		if err != nil {
+			log.Println(err.Error())
+			return
 		}
+		if alreadyBanned {
+			return
+		}
+		isNewBan = true
 	}
-	if !wasBanned {
-		nm.logFunction(message, afterAction)
-	}
+	nm.logFunction(message, isNewBan)
 }
 
 func (nm *networkMonitor) clearMap(seconds uint64, clearingMap *sync.Map) {

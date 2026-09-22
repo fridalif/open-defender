@@ -17,7 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func newNetworkMonitor(t *testing.T, cfg config.EbpfNetworkAntireconConfig, bp *mocks.MockBanPool, logFunction func(string, func())) *networkMonitor {
+func newNetworkMonitor(t *testing.T, cfg config.EbpfNetworkAntireconConfig, bp *mocks.MockBanPool, logFunction func(string, bool)) *networkMonitor {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -36,7 +36,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 func TestNewNetworkMonitor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	nm := NewNetworkMonitor(ctx, cancel, config.EbpfNetworkAntireconConfig{}, nil, func(string, func()) {})
+	nm := NewNetworkMonitor(ctx, cancel, config.EbpfNetworkAntireconConfig{}, nil, func(string, bool) {})
 	if nm == nil {
 		t.Fatal("NewNetworkMonitor() returned nil")
 	}
@@ -85,9 +85,11 @@ func TestPortsToSet(t *testing.T) {
 func TestReport(t *testing.T) {
 	t.Run("logger does not ban", func(t *testing.T) {
 		var gotMessage string
-		logFunction := func(message string, afterAction func()) {
+		logFunction := func(message string, isNewBan bool) {
 			gotMessage = message
-			afterAction()
+			if isNewBan {
+				t.Error("logger unexpectedly reported a new ban")
+			}
 		}
 		nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "logger"}, nil, logFunction)
 		nm.report("1.2.3.4", "network_antirecon -> scan")
@@ -101,7 +103,11 @@ func TestReport(t *testing.T) {
 		bp := mocks.NewMockBanPool(ctrl)
 		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(false, nil)
 
-		logFunction := func(_ string, afterAction func()) { afterAction() }
+		logFunction := func(_ string, isNewBan bool) {
+			if !isNewBan {
+				t.Error("blocker did not report a new ban")
+			}
+		}
 		nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "blocker", BanSeconds: 60}, bp, logFunction)
 		nm.report("1.2.3.4", "network_antirecon -> scan")
 	})
@@ -112,7 +118,7 @@ func TestReport(t *testing.T) {
 		bp := mocks.NewMockBanPool(ctrl)
 		bp.EXPECT().BanIP(gomock.Any(), "1.2.3.4", uint64(60)).Return(false, errors.New("boom"))
 
-		logFunction := func(_ string, afterAction func()) { afterAction() }
+		logFunction := func(_ string, _ bool) { t.Error("alert emitted after ban error") }
 		nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "blocker", BanSeconds: 60}, bp, logFunction)
 		nm.report("1.2.3.4", "network_antirecon -> scan")
 		if !strings.Contains(buf.String(), "boom") {
@@ -161,7 +167,7 @@ func TestClearMapRemovesEntries(t *testing.T) {
 
 func TestRunDisabled(t *testing.T) {
 	alerted := false
-	logFunction := func(string, func()) { alerted = true }
+	logFunction := func(string, bool) { alerted = true }
 	nm := newNetworkMonitor(t, config.EbpfNetworkAntireconConfig{Mode: "disabled"}, nil, logFunction)
 	if err := nm.Run(); err != nil {
 		t.Fatalf("error = %v", err)
