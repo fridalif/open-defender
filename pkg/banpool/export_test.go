@@ -52,6 +52,20 @@ func TestFirewallRejectsInvalidIP(t *testing.T) {
 	}
 }
 
+func TestFirewallRejectsReservedIPv4Addresses(t *testing.T) {
+	stubRunCommand(t, func(string, ...string) ([]byte, error) {
+		t.Fatal("runCommand must not be called for a reserved IPv4 address")
+		return nil, nil
+	})
+
+	fw := NewFirewall()
+	for _, ip := range []string{"192.0.2.0", "192.0.2.255"} {
+		if err := fw.Ban(ip); !errors.Is(err, ErrReservedIPv4Address) {
+			t.Errorf("Ban(%q) error = %v, want ErrReservedIPv4Address", ip, err)
+		}
+	}
+}
+
 func TestFirewallBan(t *testing.T) {
 	var calls [][]string
 	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {

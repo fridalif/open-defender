@@ -13,6 +13,7 @@ var (
 	ErrCantDeleteBan         = errors.New("cant delete ban")
 	ErrBanNotFound           = errors.New("ban not found")
 	ErrInvalidIP             = errors.New("invalid ip address")
+	ErrReservedIPv4Address   = errors.New("reserved ipv4 address")
 	ErrCantBanIP             = errors.New("cant ban ip")
 	ErrCantUnbanIP           = errors.New("cant unban ip")
 )
