@@ -164,13 +164,16 @@ func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
 }
 
 func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap *sync.Map) {
+	timer := time.NewTimer(time.Duration(seconds) * time.Second)
+	defer timer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			time.Sleep(time.Duration(seconds) * time.Second)
+		case <-timer.C:
 			clearingMap.Clear()
+			timer.Reset(time.Duration(seconds) * time.Second)
 		}
 	}
 }
@@ -181,6 +184,12 @@ func (mh *monitorHub) alert(critLevel int, event protocol.AlertEvent, afterActio
 	log.Printf("<%d>%s\n", critLevel, event.Message)
 	mh.export(event)
 	goRun(afterAction)
+}
+
+func (mh *monitorHub) alertSync(critLevel int, event protocol.AlertEvent, afterAction func()) {
+	log.Printf("<%d>%s\n", critLevel, event.Message)
+	mh.export(event)
+	afterAction()
 }
 
 func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
@@ -319,15 +328,24 @@ func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) err
 	}
 	diskIOps := float64(totalIOps) / seconds
 
-	mh.checkLimits("cpu usage", cpuPercent, "%", rm.CpuUsagePersentage, rm.OutputTopSnapshotDir)
-	mh.checkLimits("ram usage", ramPercent, "%", rm.RamUsagePersentage, rm.OutputTopSnapshotDir)
-	mh.checkLimits("traffic usage", trafficMBs, "mb/s", rm.TrafficUsageMBs, rm.OutputTopSnapshotDir)
-	mh.checkLimits("disk usage", diskIOps, "iops", rm.DiskUsageIOps, rm.OutputTopSnapshotDir)
+	alerted := mh.checkLimits("cpu usage", cpuPercent, "%", rm.CpuUsagePersentage, rm.OutputTopSnapshotDir)
+	alerted = mh.checkLimits("ram usage", ramPercent, "%", rm.RamUsagePersentage, rm.OutputTopSnapshotDir) || alerted
+	alerted = mh.checkLimits("traffic usage", trafficMBs, "mb/s", rm.TrafficUsageMBs, rm.OutputTopSnapshotDir) || alerted
+	alerted = mh.checkLimits("disk usage", diskIOps, "iops", rm.DiskUsageIOps, rm.OutputTopSnapshotDir) || alerted
+
+	if alerted {
+		timer := time.NewTimer(resourceAlertCooldown)
+		defer timer.Stop()
+		select {
+		case <-mh.ctx.Done():
+		case <-timer.C:
+		}
+	}
 
 	return nil
 }
 
-func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) {
+func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) bool {
 	if limits.Alert != 0 && value >= float64(limits.Alert) {
 		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
 		event := protocol.AlertEvent{
@@ -337,13 +355,13 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 			Details:  map[string]any{"metric": name, "value": value, "unit": unit, "limit": limits.Alert},
 		}
 
-		mh.alert(journalAlert, event, func() {
+		mh.alertSync(journalAlert, event, func() {
 			if err := mh.saveSnapshot(snapshotDir); err != nil {
 				log.Println(err.Error())
 			}
 		})
 
-		return
+		return true
 	}
 
 	if limits.Warning != 0 && value >= float64(limits.Warning) {
@@ -357,6 +375,8 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 
 		mh.alert(journalWarning, event, func() {})
 	}
+
+	return false
 }
 
 func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error {

@@ -42,6 +42,24 @@ func TestNewNetworkMonitor(t *testing.T) {
 	}
 }
 
+func TestClearMapStopsOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	nm := &networkMonitor{ctx: ctx}
+	done := make(chan struct{})
+
+	go func() {
+		nm.clearMap(3600, &sync.Map{})
+		close(done)
+	}()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("clearMap did not stop after context cancellation")
+	}
+}
+
 func TestParseEvent(t *testing.T) {
 	// 192.168.1.5:80, порт в network byte order (0x0050), плюс паддинг структуры.
 	sample := []byte{192, 168, 1, 5, 0x00, 0x50, 0x00, 0x00}

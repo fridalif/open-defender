@@ -163,13 +163,16 @@ func (nm *networkMonitor) report(ip string, message string) {
 }
 
 func (nm *networkMonitor) clearMap(seconds uint64, clearingMap *sync.Map) {
+	timer := time.NewTimer(time.Duration(seconds) * time.Second)
+	defer timer.Stop()
+
 	for {
 		select {
 		case <-nm.ctx.Done():
 			return
-		default:
-			time.Sleep(time.Duration(seconds) * time.Second)
+		case <-timer.C:
 			clearingMap.Clear()
+			timer.Reset(time.Duration(seconds) * time.Second)
 		}
 	}
 }

@@ -49,6 +49,23 @@ func feedLines(lines ...string) func(context.Context, *config.BaseFields, chan<-
 	}
 }
 
+func TestClearMapsStopsOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		(&monitorHub{}).clearMaps(ctx, 3600, &sync.Map{})
+		close(done)
+	}()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("clearMaps did not stop after context cancellation")
+	}
+}
+
 func syncGoRun(t *testing.T) {
 	t.Helper()
 	original := goRun
@@ -305,6 +322,30 @@ func TestCheckResourceMetrics(t *testing.T) {
 			t.Fatalf("error = %v, want ErrCantGetCPUUsage", err)
 		}
 	})
+
+	t.Run("alert cooldown", func(t *testing.T) {
+		goodMetrics(t, 75)
+		originalCooldown := resourceAlertCooldown
+		resourceAlertCooldown = 20 * time.Millisecond
+		t.Cleanup(func() { resourceAlertCooldown = originalCooldown })
+
+		originalProcesses := listProcesses
+		listProcesses = func(context.Context) ([]*process.Process, error) { return nil, nil }
+		t.Cleanup(func() { listProcesses = originalProcesses })
+
+		rm := &config.ResourceMonitorConfig{
+			Enabled:              true,
+			CpuUsagePersentage:   config.ResourceFields{Alert: 60},
+			OutputTopSnapshotDir: t.TempDir(),
+		}
+		started := time.Now()
+		if err := newHub(t, config.New(), nil).checkResourceMetrics(rm); err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if elapsed := time.Since(started); elapsed < resourceAlertCooldown {
+			t.Fatalf("checkResourceMetrics returned after %s, want at least %s", elapsed, resourceAlertCooldown)
+		}
+	})
 }
 
 func TestCheckLimitsAlertSnapshotError(t *testing.T) {
@@ -449,6 +490,9 @@ func TestSaveSnapshot(t *testing.T) {
 		entries, _ := os.ReadDir(dir)
 		if len(entries) != 1 {
 			t.Fatalf("wrote %d files, want 1", len(entries))
+		}
+		if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{6}\.sp$`).MatchString(entries[0].Name()) {
+			t.Errorf("snapshot name = %q, want microsecond precision", entries[0].Name())
 		}
 	})
 

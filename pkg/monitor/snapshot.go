@@ -11,7 +11,7 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-const snapshotTimeLayout = "2006-01-02_15-04-05"
+const snapshotTimeLayout = "2006-01-02_15-04-05.000000"
 
 var listProcesses = process.ProcessesWithContext
 
