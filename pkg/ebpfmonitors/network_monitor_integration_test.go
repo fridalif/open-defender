@@ -45,7 +45,7 @@ func TestRunDetectsResetIntegration(t *testing.T) {
 	port := closedLoopbackPort(t)
 
 	messages := make(chan string, 100)
-	logFunction := func(message string, _ func()) {
+	logFunction := func(message string, _ bool) {
 		select {
 		case messages <- message:
 		default:

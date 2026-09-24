@@ -149,20 +149,6 @@ func (mh *monitorHub) export(event protocol.AlertEvent) {
 	}
 }
 
-func (mh *monitorHub) withBanEvent(ip string, mode string, afterAction func()) func() {
-	return func() {
-		afterAction()
-		if mode != modeBlocker || ip == "" {
-			return
-		}
-		mh.export(protocol.AlertEvent{
-			Source:  protocol.SourceIPBan,
-			IP:      ip,
-			Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
-		})
-	}
-}
-
 func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
 	matches := re.FindStringSubmatch(message)
 	if len(matches) == 0 {
@@ -178,13 +164,16 @@ func (mh *monitorHub) getIp(re *regexp.Regexp, message string) (string, bool) {
 }
 
 func (mh *monitorHub) clearMaps(ctx context.Context, seconds uint64, clearingMap *sync.Map) {
+	timer := time.NewTimer(time.Duration(seconds) * time.Second)
+	defer timer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			time.Sleep(time.Duration(seconds) * time.Second)
+		case <-timer.C:
 			clearingMap.Clear()
+			timer.Reset(time.Duration(seconds) * time.Second)
 		}
 	}
 }
@@ -197,15 +186,28 @@ func (mh *monitorHub) alert(critLevel int, event protocol.AlertEvent, afterActio
 	goRun(afterAction)
 }
 
+func (mh *monitorHub) alertSync(critLevel int, event protocol.AlertEvent, afterAction func()) {
+	log.Printf("<%d>%s\n", critLevel, event.Message)
+	mh.export(event)
+	afterAction()
+}
+
 func (mh *monitorHub) RunNetworkMonitor(nc *config.EbpfNetworkAntireconConfig) error {
-	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, afterAction func()) {
+	nm := ebpfmonitors.NewNetworkMonitor(mh.ctx, mh.cancel, *nc, mh.bp, func(message string, isNewBan bool) {
 		ip := ipPattern.FindString(message)
 		event := protocol.AlertEvent{
 			Source:  protocol.SourceNetworkAntirecon,
 			IP:      ip,
 			Message: message,
 		}
-		mh.alert(journalInfo, event, mh.withBanEvent(ip, nc.Mode, afterAction))
+		mh.alert(journalInfo, event, func() {})
+		if isNewBan {
+			mh.export(protocol.AlertEvent{
+				Source:  protocol.SourceIPBan,
+				IP:      ip,
+				Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+			})
+		}
 	})
 	return nm.Run()
 }
@@ -237,33 +239,31 @@ func (mh *monitorHub) RunBaseMonitor(name string, bm *config.BaseFields) error {
 		}
 		counter += uint64(1)
 		if counter >= bm.Tries {
-			wasBanned := false
-			action := func() {}
+			isNewBan := false
 			if bm.Mode == modeBlocker {
-				action = func() {
-					wasBanned, err = mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
-					if err != nil {
-						log.Println(err.Error())
-						return
-					}
-					if !wasBanned {
-						mh.export(protocol.AlertEvent{
-							Source:  protocol.SourceIPBan,
-							IP:      ip,
-							Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
-						})
-					}
+				alreadyBanned, err := mh.bp.BanIP(mh.ctx, ip, bm.BanSeconds)
+				if err != nil {
+					log.Println(err.Error())
+				} else if !alreadyBanned {
+					isNewBan = true
 				}
 			}
 
-			if !wasBanned {
+			if bm.Mode != modeBlocker || isNewBan {
 				event := protocol.AlertEvent{
 					Source:  name,
 					IP:      ip,
 					Message: fmt.Sprintf("%s -> found offenders ip %s while scanning %s: %s-%s", name, ip, bm.Engine, bm.LogPath, bm.UnitName),
 					Details: map[string]any{"engine": bm.Engine, "source": bm.Source()},
 				}
-				mh.alert(journalInfo, event, action)
+				mh.alert(journalInfo, event, func() {})
+				if isNewBan {
+					mh.export(protocol.AlertEvent{
+						Source:  protocol.SourceIPBan,
+						IP:      ip,
+						Message: fmt.Sprintf("ip_ban -> %s is banned", ip),
+					})
+				}
 			}
 
 			counter = 0
@@ -328,15 +328,24 @@ func (mh *monitorHub) checkResourceMetrics(rm *config.ResourceMonitorConfig) err
 	}
 	diskIOps := float64(totalIOps) / seconds
 
-	mh.checkLimits("cpu usage", cpuPercent, "%", rm.CpuUsagePersentage, rm.OutputTopSnapshotDir)
-	mh.checkLimits("ram usage", ramPercent, "%", rm.RamUsagePersentage, rm.OutputTopSnapshotDir)
-	mh.checkLimits("traffic usage", trafficMBs, "mb/s", rm.TrafficUsageMBs, rm.OutputTopSnapshotDir)
-	mh.checkLimits("disk usage", diskIOps, "iops", rm.DiskUsageIOps, rm.OutputTopSnapshotDir)
+	alerted := mh.checkLimits("cpu usage", cpuPercent, "%", rm.CpuUsagePersentage, rm.OutputTopSnapshotDir)
+	alerted = mh.checkLimits("ram usage", ramPercent, "%", rm.RamUsagePersentage, rm.OutputTopSnapshotDir) || alerted
+	alerted = mh.checkLimits("traffic usage", trafficMBs, "mb/s", rm.TrafficUsageMBs, rm.OutputTopSnapshotDir) || alerted
+	alerted = mh.checkLimits("disk usage", diskIOps, "iops", rm.DiskUsageIOps, rm.OutputTopSnapshotDir) || alerted
+
+	if alerted {
+		timer := time.NewTimer(resourceAlertCooldown)
+		defer timer.Stop()
+		select {
+		case <-mh.ctx.Done():
+		case <-timer.C:
+		}
+	}
 
 	return nil
 }
 
-func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) {
+func (mh *monitorHub) checkLimits(name string, value float64, unit string, limits config.ResourceFields, snapshotDir string) bool {
 	if limits.Alert != 0 && value >= float64(limits.Alert) {
 		message := fmt.Sprintf("resource_monitor -> %s is %.2f%s, alert limit is %d%s", name, value, unit, limits.Alert, unit)
 		event := protocol.AlertEvent{
@@ -346,13 +355,13 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 			Details:  map[string]any{"metric": name, "value": value, "unit": unit, "limit": limits.Alert},
 		}
 
-		mh.alert(journalAlert, event, func() {
+		mh.alertSync(journalAlert, event, func() {
 			if err := mh.saveSnapshot(snapshotDir); err != nil {
 				log.Println(err.Error())
 			}
 		})
 
-		return
+		return true
 	}
 
 	if limits.Warning != 0 && value >= float64(limits.Warning) {
@@ -366,6 +375,8 @@ func (mh *monitorHub) checkLimits(name string, value float64, unit string, limit
 
 		mh.alert(journalWarning, event, func() {})
 	}
+
+	return false
 }
 
 func (mh *monitorHub) RunResourceMonitor(rm *config.ResourceMonitorConfig) error {

@@ -51,6 +51,9 @@ func (a *app) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("app.Initialize() -> %w", err)
 	}
+	if problems := cfg.Validate(); len(problems) != 0 {
+		return fmt.Errorf("app.Initialize() -> %w: %s: %d problem(s)", config.ErrInvalidConfig, a.configPath, len(problems))
+	}
 	a.cfg = cfg
 	a.bp, err = banpool.New(cfg)
 	if err != nil {

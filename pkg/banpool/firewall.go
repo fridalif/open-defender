@@ -26,7 +26,7 @@ func NewFirewall() Firewall {
 }
 
 func (f *firewall) Ban(ip string) error {
-	if err := validateIP(ip); err != nil {
+	if err := validateBanIP(ip); err != nil {
 		return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w", ip, err)
 	}
 
@@ -65,6 +65,19 @@ func (f *firewall) hasRule(ip string) bool {
 func validateIP(ip string) error {
 	if net.ParseIP(ip) == nil {
 		return fmt.Errorf("%w: %s", ErrInvalidIP, ip)
+	}
+
+	return nil
+}
+
+func validateBanIP(ip string) error {
+	if err := validateIP(ip); err != nil {
+		return err
+	}
+
+	v4 := net.ParseIP(ip).To4()
+	if v4 != nil && (v4[3] == 0 || v4[3] == 255) {
+		return fmt.Errorf("%w: %s", ErrReservedIPv4Address, ip)
 	}
 
 	return nil

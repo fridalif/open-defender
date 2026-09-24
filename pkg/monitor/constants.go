@@ -14,8 +14,9 @@ var (
 )
 
 var (
-	resourcePollInterval = 5 * time.Second
-	windowPollInterval   = 1 * time.Second
+	resourcePollInterval  = 5 * time.Second
+	resourceAlertCooldown = 15 * time.Second
+	windowPollInterval    = 1 * time.Second
 )
 
 var (
