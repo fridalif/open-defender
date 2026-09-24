@@ -203,6 +203,17 @@ func TestInitializeConfigError(t *testing.T) {
 	}
 }
 
+func TestInitializeInvalidNetworkAntireconConfig(t *testing.T) {
+	inst, upd := mocksFor(t)
+	c := disabledConfig()
+	c.EbpfMonitors.NetworkAntirecon.Mode = "logger"
+	c.EbpfMonitors.NetworkAntirecon.WindowSeconds = 0
+	a := app.NewAppForTest(nil, writeConfig(t, c), inst, upd)
+	if err := a.Initialize(); !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("Initialize() error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestInitializeBanpoolError(t *testing.T) {
 	inst, upd := mocksFor(t)
 	c := disabledConfig()

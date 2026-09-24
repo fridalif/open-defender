@@ -155,6 +155,25 @@ func TestValidateProblems(t *testing.T) {
 			c.ResourceMonitor.TrafficUsageMBs = ResourceFields{}
 			c.ResourceMonitor.DiskUsageIOps = ResourceFields{}
 		}, ErrNoLimitsSet},
+		{"network antirecon bad mode", func(c *Config) {
+			c.EbpfMonitors.NetworkAntirecon.Mode = "banana"
+		}, ErrInvalidValue},
+		{"network antirecon zero window", func(c *Config) {
+			c.EbpfMonitors.NetworkAntirecon.Mode = "logger"
+			c.EbpfMonitors.NetworkAntirecon.WindowSeconds = 0
+		}, ErrZeroValue},
+		{"network antirecon blocker no ban", func(c *Config) {
+			c.EbpfMonitors.NetworkAntirecon.Mode = "blocker"
+			c.EbpfMonitors.NetworkAntirecon.BanSeconds = 0
+		}, ErrZeroValue},
+		{"network antirecon oversized whitelist port", func(c *Config) {
+			c.EbpfMonitors.NetworkAntirecon.Mode = "logger"
+			c.EbpfMonitors.NetworkAntirecon.WhitelistPorts = []uint64{65536}
+		}, ErrInvalidValue},
+		{"network antirecon oversized blacklist port", func(c *Config) {
+			c.EbpfMonitors.NetworkAntirecon.Mode = "logger"
+			c.EbpfMonitors.NetworkAntirecon.BlacklistPorts = []uint64{65536}
+		}, ErrInvalidValue},
 	}
 
 	for _, tt := range tests {

@@ -16,6 +16,7 @@ const (
 	engineSyslog = "syslog"
 
 	ipGroup = "ip"
+	maxPort = 65535
 )
 
 var (
@@ -41,6 +42,7 @@ func (c *Config) Validate() []error {
 	}
 
 	problems = append(problems, c.validateResource("resource_monitor", &c.ResourceMonitor)...)
+	problems = append(problems, c.validateNetworkAntirecon("ebpf_monitors.network_antirecon", &c.EbpfMonitors.NetworkAntirecon)...)
 
 	return problems
 }
@@ -145,6 +147,42 @@ func (c *Config) validateResource(name string, rm *ResourceMonitorConfig) []erro
 
 	if !set {
 		problems = append(problems, fmt.Errorf("%s: %w: it is enabled, yet every limit is zero", name, ErrNoLimitsSet))
+	}
+
+	return problems
+}
+
+func (c *Config) validateNetworkAntirecon(name string, nm *EbpfNetworkAntireconConfig) []error {
+	if !slices.Contains(validModes, nm.Mode) {
+		return []error{fmt.Errorf("%s.mode: %w: %q, expected one of: %s", name, ErrInvalidValue, nm.Mode, strings.Join(validModes, ", "))}
+	}
+
+	if nm.Mode == modeDisabled {
+		return nil
+	}
+
+	var problems []error
+
+	if nm.WindowSeconds == 0 {
+		problems = append(problems, fmt.Errorf("%s.window_seconds: %w", name, ErrZeroValue))
+	}
+
+	if nm.Mode == modeBlocker && nm.BanSeconds == 0 {
+		problems = append(problems, fmt.Errorf("%s.ban_seconds: %w: a ban of the blocker mode would be lifted at once", name, ErrZeroValue))
+	}
+
+	for _, ports := range []struct {
+		name  string
+		ports []uint64
+	}{
+		{"whitelist_ports", nm.WhitelistPorts},
+		{"blacklist_ports", nm.BlacklistPorts},
+	} {
+		for _, port := range ports.ports {
+			if port > maxPort {
+				problems = append(problems, fmt.Errorf("%s.%s: %w: %d must be between 0 and %d", name, ports.name, ErrInvalidValue, port, maxPort))
+			}
+		}
 	}
 
 	return problems
