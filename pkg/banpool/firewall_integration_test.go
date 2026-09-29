@@ -31,7 +31,7 @@ func TestFirewallIntegration(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 
-	fw := NewFirewall()
+	fw := NewFirewall("iptables")
 
 	if err := fw.Ban(testDocumentationIP); err != nil {
 		t.Fatalf("Ban() error: %v", err)
