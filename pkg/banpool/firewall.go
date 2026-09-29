@@ -22,10 +22,20 @@ type firewall struct {
 	fwEngine string
 }
 
-func NewFirewall(fwEngine string) Firewall {
+func NewFirewall(fwEngine string) (Firewall, error) {
+	if fwEngine == "nftables" {
+		_, err := runCommand("nft", "add", "table", "inet", "filter")
+		if err != nil {
+			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
+		}
+		_, err = runCommand("nft", "add", "chain", "inet", "filter", "input", "{ type filter hook input priority 0; }")
+		if err != nil {
+			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
+		}
+	}
 	return &firewall{
 		fwEngine: fwEngine,
-	}
+	}, nil
 }
 
 func (f *firewall) Ban(ip string) error {

@@ -43,7 +43,7 @@ func TestFirewallRejectsInvalidIP(t *testing.T) {
 		return nil, nil
 	})
 
-	fw := NewFirewall("iptables")
+	fw, _ := NewFirewall("iptables")
 	if err := fw.Ban("not-an-ip"); !errors.Is(err, ErrInvalidIP) {
 		t.Errorf("Ban() error = %v, want ErrInvalidIP", err)
 	}
@@ -57,8 +57,7 @@ func TestFirewallRejectsReservedIPv4Addresses(t *testing.T) {
 		t.Fatal("runCommand must not be called for a reserved IPv4 address")
 		return nil, nil
 	})
-
-	fw := NewFirewall("iptables")
+	fw, _ := NewFirewall("iptables")
 	for _, ip := range []string{"192.0.2.0", "192.0.2.255"} {
 		if err := fw.Ban(ip); !errors.Is(err, ErrReservedIPv4Address) {
 			t.Errorf("Ban(%q) error = %v, want ErrReservedIPv4Address", ip, err)
@@ -75,8 +74,8 @@ func TestFirewallBan(t *testing.T) {
 		}
 		return nil, nil
 	})
-
-	if err := NewFirewall("iptables").Ban("10.0.0.1"); err != nil {
+	fw, _ := NewFirewall("iptables")
+	if err := fw.Ban("10.0.0.1"); err != nil {
 		t.Fatalf("Ban() error: %v", err)
 	}
 	if len(calls) != 2 || !hasArg(calls[1], "--insert") {
@@ -90,8 +89,8 @@ func TestFirewallBanAlreadyPresent(t *testing.T) {
 		calls++
 		return nil, nil
 	})
-
-	if err := NewFirewall("iptables").Ban("10.0.0.1"); err != nil {
+	fw, _ := NewFirewall("iptables")
+	if err := fw.Ban("10.0.0.1"); err != nil {
 		t.Fatalf("Ban() error: %v", err)
 	}
 	if calls != 1 {
@@ -106,8 +105,8 @@ func TestFirewallBanInsertFails(t *testing.T) {
 		}
 		return []byte("err"), errors.New("exit 1")
 	})
-
-	if err := NewFirewall("iptables").Ban("10.0.0.1"); !errors.Is(err, ErrCantBanIP) {
+	fw, _ := NewFirewall("iptables")
+	if err := fw.Ban("10.0.0.1"); !errors.Is(err, ErrCantBanIP) {
 		t.Fatalf("Ban() error = %v, want ErrCantBanIP", err)
 	}
 }
@@ -118,8 +117,8 @@ func TestFirewallUnban(t *testing.T) {
 		calls = append(calls, args)
 		return nil, nil
 	})
-
-	if err := NewFirewall("iptables").Unban("10.0.0.1"); err != nil {
+	fw, _ := NewFirewall("iptables")
+	if err := fw.Unban("10.0.0.1"); err != nil {
 		t.Fatalf("Unban() error: %v", err)
 	}
 	if len(calls) != 2 || !hasArg(calls[1], "--delete") {
@@ -131,8 +130,8 @@ func TestFirewallUnbanAbsent(t *testing.T) {
 	stubRunCommand(t, func(string, ...string) ([]byte, error) {
 		return nil, errors.New("no rule")
 	})
-
-	if err := NewFirewall("iptables").Unban("10.0.0.1"); err != nil {
+	fw, _ := NewFirewall("iptables")
+	if err := fw.Unban("10.0.0.1"); err != nil {
 		t.Fatalf("Unban() error: %v", err)
 	}
 }
@@ -144,8 +143,9 @@ func TestFirewallUnbanDeleteFails(t *testing.T) {
 		}
 		return []byte("err"), errors.New("exit 1")
 	})
+	fw, _ := NewFirewall("iptables")
 
-	if err := NewFirewall("iptables").Unban("10.0.0.1"); !errors.Is(err, ErrCantUnbanIP) {
+	if err := fw.Unban("10.0.0.1"); !errors.Is(err, ErrCantUnbanIP) {
 		t.Fatalf("Unban() error = %v, want ErrCantUnbanIP", err)
 	}
 }
