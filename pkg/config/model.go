@@ -85,6 +85,7 @@ type ExporterConfig struct {
 type Config struct {
 	IPWhiteList        []string              `yaml:"ip_whitelist" json:"ip_whitelist" comment:"these addresses are never banned, the addresses of the machine itself are put here on the first run"`
 	BlockedIPsDatabase string                `yaml:"blocked_ips_database" json:"blocked_ips_database" comment:"the bans outlive a restart of the daemon, they are kept here"`
+	FirewallEngine     string                `yaml:"firewall_engine" json:"firewall_engine" comment:"iptables, nftables, firewalld"`
 	Exporter           ExporterConfig        `yaml:"exporter" json:"exporter" comment:"settings for export events to dashboard"`
 	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor" json:"ssh_monitor" comment:"failed ssh logins"`
 	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor" json:"web_recon_monitor" comment:"scanning of the web server for the paths that are not there"`
@@ -99,6 +100,7 @@ const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
 func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
+		FirewallEngine:     "iptables",
 		Exporter: ExporterConfig{
 			Enabled:              false,
 			EndpointAddress:      "wss://connector.light-defender.ru/ (get this in dashboard.light-defender.ru)",

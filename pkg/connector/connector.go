@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	agentVersion     = "v1.3.0"
+	agentVersion     = "v1.4.0"
 	keyBits          = 2048
 	dialTimeout      = 15 * time.Second
 	handshakeTimeout = 30 * time.Second

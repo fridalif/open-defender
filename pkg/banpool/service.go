@@ -32,7 +32,7 @@ func New(cfg *config.Config) (BanPool, error) {
 
 	return &banPool{
 		repository: repository,
-		firewall:   NewFirewall(),
+		firewall:   NewFirewall(cfg.FirewallEngine),
 	}, nil
 }
 
