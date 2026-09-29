@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const nftablesBanChain = "open_defender"
+
 var runCommand = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
@@ -28,7 +30,7 @@ func NewFirewall(fwEngine string) (Firewall, error) {
 		if err != nil {
 			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
 		}
-		_, err = runCommand("nft", "add", "chain", "inet", "filter", "input", "{ type filter hook input priority 0; }")
+		_, err = runCommand("nft", "add", "chain", "inet", "filter", nftablesBanChain, "{ type filter hook input priority 0; }")
 		if err != nil {
 			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
 		}
@@ -52,7 +54,7 @@ func (f *firewall) Ban(ip string) error {
 			return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
 		}
 	case "nftables":
-		if output, err := runCommand("nft", "insert", "rule", "inet", "filter", "input", "ip", "saddr", ip, "drop"); err != nil {
+		if output, err := runCommand("nft", "insert", "rule", "inet", "filter", nftablesBanChain, "ip", "saddr", ip, "drop"); err != nil {
 			return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
 		}
 	case "firewalld":
@@ -79,7 +81,7 @@ func (f *firewall) Unban(ip string) error {
 		}
 
 	case "nftables":
-		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", "input")
+		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", nftablesBanChain)
 		if err != nil {
 			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
 		}
@@ -103,7 +105,7 @@ func (f *firewall) Unban(ip string) error {
 			return nil
 		}
 
-		if output, err := runCommand("nft", "delete", "rule", "inet", "filter", "input", "handle", handle); err != nil {
+		if output, err := runCommand("nft", "delete", "rule", "inet", "filter", nftablesBanChain, "handle", handle); err != nil {
 			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
 		}
 
@@ -127,7 +129,7 @@ func (f *firewall) hasRule(ip string) bool {
 		return err == nil
 
 	case "nftables":
-		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", "input")
+		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", nftablesBanChain)
 		if err != nil {
 			return false
 		}
