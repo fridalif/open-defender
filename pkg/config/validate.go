@@ -20,8 +20,9 @@ const (
 )
 
 var (
-	validModes   = []string{modeDisabled, "logger", modeBlocker}
-	validEngines = []string{engineSyslog, "journal", "docker"}
+	validModes           = []string{modeDisabled, "logger", modeBlocker}
+	validEngines         = []string{engineSyslog, "journal", "docker"}
+	validFirewallEngines = []string{"iptables", "nftables", "firewalld"}
 )
 
 func (c *Config) Validate() []error {
@@ -29,6 +30,9 @@ func (c *Config) Validate() []error {
 
 	if strings.TrimSpace(c.BlockedIPsDatabase) == "" {
 		problems = append(problems, fmt.Errorf("blocked_ips_database: %w", ErrEmptyValue))
+	}
+	if !slices.Contains(validFirewallEngines, c.FirewallEngine) {
+		problems = append(problems, fmt.Errorf("firewall_engine: %w: %q, expected one of: %s", ErrInvalidValue, c.FirewallEngine, strings.Join(validFirewallEngines, ", ")))
 	}
 
 	for _, ip := range c.IPWhiteList {

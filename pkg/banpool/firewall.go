@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strings"
 )
 
-const iptablesCommand = "iptables"
+const nftablesBanChain = "open_defender"
 
 var runCommand = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
@@ -19,10 +20,24 @@ type Firewall interface {
 	Unban(ip string) error
 }
 
-type firewall struct{}
+type firewall struct {
+	fwEngine string
+}
 
-func NewFirewall() Firewall {
-	return &firewall{}
+func NewFirewall(fwEngine string) (Firewall, error) {
+	if fwEngine == "nftables" {
+		_, err := runCommand("nft", "add", "table", "inet", "filter")
+		if err != nil {
+			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
+		}
+		_, err = runCommand("nft", "add", "chain", "inet", "filter", nftablesBanChain, "{ type filter hook input priority 0; }")
+		if err != nil {
+			return &firewall{}, fmt.Errorf("banpool.firewall.NewFirewall -> %v", err)
+		}
+	}
+	return &firewall{
+		fwEngine: fwEngine,
+	}, nil
 }
 
 func (f *firewall) Ban(ip string) error {
@@ -33,11 +48,20 @@ func (f *firewall) Ban(ip string) error {
 	if f.hasRule(ip) {
 		return nil
 	}
-
-	if output, err := runCommand(iptablesCommand, "--insert", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
-		return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+	switch f.fwEngine {
+	case "iptables":
+		if output, err := runCommand("iptables", "--insert", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
+			return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+		}
+	case "nftables":
+		if output, err := runCommand("nft", "insert", "rule", "inet", "filter", nftablesBanChain, "ip", "saddr", ip, "drop"); err != nil {
+			return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+		}
+	case "firewalld":
+		if output, err := runCommand("firewall-cmd", "--add-rich-rule", fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip)); err != nil {
+			return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+		}
 	}
-
 	return nil
 }
 
@@ -50,16 +74,81 @@ func (f *firewall) Unban(ip string) error {
 		return nil
 	}
 
-	if output, err := runCommand(iptablesCommand, "--delete", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
-		return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+	switch f.fwEngine {
+	case "iptables":
+		if output, err := runCommand("iptables", "--delete", "INPUT", "--source", ip, "--jump", "DROP"); err != nil {
+			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+		}
+
+	case "nftables":
+		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", nftablesBanChain)
+		if err != nil {
+			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+		}
+
+		handle := ""
+		rule := fmt.Sprintf("ip saddr %s drop", ip)
+
+		for _, line := range strings.Split(string(output), "\n") {
+			if !strings.Contains(line, rule) {
+				continue
+			}
+
+			parts := strings.Split(line, "# handle ")
+			if len(parts) == 2 {
+				handle = strings.TrimSpace(parts[1])
+				break
+			}
+		}
+
+		if handle == "" {
+			return nil
+		}
+
+		if output, err := runCommand("nft", "delete", "rule", "inet", "filter", nftablesBanChain, "handle", handle); err != nil {
+			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+		}
+
+	case "firewalld":
+		if output, err := runCommand(
+			"firewall-cmd",
+			"--remove-rich-rule",
+			fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip),
+		); err != nil {
+			return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+		}
 	}
 
 	return nil
 }
 
 func (f *firewall) hasRule(ip string) bool {
-	_, err := runCommand(iptablesCommand, "--check", "INPUT", "--source", ip, "--jump", "DROP")
-	return err == nil
+	switch f.fwEngine {
+	case "iptables":
+		_, err := runCommand("iptables", "--check", "INPUT", "--source", ip, "--jump", "DROP")
+		return err == nil
+
+	case "nftables":
+		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", nftablesBanChain)
+		if err != nil {
+			return false
+		}
+
+		return strings.Contains(
+			string(output),
+			fmt.Sprintf("ip saddr %s drop", ip),
+		)
+
+	case "firewalld":
+		_, err := runCommand(
+			"firewall-cmd",
+			"--query-rich-rule",
+			fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip),
+		)
+		return err == nil
+	}
+
+	return false
 }
 
 func validateIP(ip string) error {
