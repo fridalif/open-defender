@@ -188,6 +188,7 @@ func New() *Config {
 			},
 		},
 	}
+	config.setFirewallChains()
 	return config
 }
 
