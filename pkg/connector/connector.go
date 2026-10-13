@@ -286,9 +286,12 @@ func (c *connector) applyConfig(envelope protocol.Envelope) (bool, error) {
 	}
 
 	incoming := config.New()
+
+	incoming.FirewallChains = nil
 	if err := json.Unmarshal(payload.Config, incoming); err != nil {
 		return false, fmt.Errorf("connector.applyConfig(): %w: %v", ErrBadConfigPayload, err)
 	}
+	incoming.NormalizeFirewallChains()
 
 	incoming.Exporter = c.cfg.Exporter
 	incoming.IPWhiteList = c.keepLocalIps(incoming.IPWhiteList)

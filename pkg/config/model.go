@@ -338,9 +338,11 @@ func (c *Config) LoadConfigReadOnly(path string) error {
 		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrReadConfig, err)
 	}
 
+	c.FirewallChains = nil
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrParseConfig, err)
 	}
+	c.setFirewallChains()
 
 	return nil
 }
@@ -395,4 +397,8 @@ func (c *Config) setFirewallChains() {
 	case "firewalld":
 		c.FirewallChains = []string{"INPUT", "DOCKER-USER"}
 	}
+}
+
+func (c *Config) NormalizeFirewallChains() {
+	c.setFirewallChains()
 }

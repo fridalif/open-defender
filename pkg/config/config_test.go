@@ -256,6 +256,21 @@ func TestLoadConfigAddsChainsForSelectedFirewallEngine(t *testing.T) {
 	}
 }
 
+func TestLoadConfigReadOnlyAddsChainsForLegacyEmptyList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("firewall_engine: nftables\nfirewall_chains: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := New()
+	if err := cfg.LoadConfigReadOnly(path); err != nil {
+		t.Fatalf("LoadConfigReadOnly() error: %v", err)
+	}
+	if want := []string{"open_defender", "open_defender_forward"}; !reflect.DeepEqual(cfg.FirewallChains, want) {
+		t.Fatalf("FirewallChains = %v, want %v", cfg.FirewallChains, want)
+	}
+}
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
 
