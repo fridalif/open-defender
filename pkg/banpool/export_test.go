@@ -105,6 +105,48 @@ func TestFirewallBanUsesConfiguredIPTablesChain(t *testing.T) {
 	t.Fatalf("iptables calls = %v, want DOCKER-USER", calls)
 }
 
+func TestFirewallBanSucceedsWhenOneConfiguredChainFails(t *testing.T) {
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "--check") {
+			return nil, errors.New("no rule")
+		}
+		if hasArg(args, "DOCKER-USER") {
+			return []byte("missing chain"), errors.New("exit 1")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"INPUT", "DOCKER-USER"})
+	if err := fw.Ban("10.0.0.1"); err != nil {
+		t.Fatalf("Ban() error = %v, want success when INPUT was updated", err)
+	}
+}
+
+func TestFirewallUnbanAttemptsEveryConfiguredChain(t *testing.T) {
+	var dockerDelete bool
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "--check") {
+			return nil, nil
+		}
+		if hasArg(args, "--delete") && hasArg(args, "DOCKER-USER") {
+			dockerDelete = true
+			return nil, nil
+		}
+		if hasArg(args, "--delete") {
+			return []byte("failed"), errors.New("exit 1")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"INPUT", "DOCKER-USER"})
+	if err := fw.Unban("10.0.0.1"); !errors.Is(err, ErrCantUnbanIP) {
+		t.Fatalf("Unban() error = %v, want ErrCantUnbanIP", err)
+	}
+	if !dockerDelete {
+		t.Fatal("Unban() did not try DOCKER-USER after INPUT failed")
+	}
+}
+
 func TestNewFirewallCreatesNftablesForwardChainBeforeDocker(t *testing.T) {
 	var addChain []string
 	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {

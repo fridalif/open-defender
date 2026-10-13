@@ -4,6 +4,7 @@ package banpool
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os/exec"
 	"strings"
@@ -30,8 +31,6 @@ type firewall struct {
 	chains   []string
 }
 
-// chains is optional to preserve the default host firewall behaviour for
-// callers outside the application configuration.
 func NewFirewall(fwEngine string, chains ...[]string) (Firewall, error) {
 	firewallChains := []string{"INPUT"}
 	if len(chains) != 0 && len(chains[0]) != 0 {
@@ -118,28 +117,48 @@ func (f *firewall) Ban(ip string) error {
 		return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w", ip, err)
 	}
 
-	if f.hasRule(ip) {
-		return nil
-	}
+	succeeded := false
+	var firstErr error
 	switch f.fwEngine {
 	case "iptables":
 		for _, chain := range f.chains {
-			if output, err := runCommand("iptables", "--insert", chain, "--source", ip, "--jump", "DROP"); err != nil {
-				return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+			if f.hasRule(chain, ip) {
+				succeeded = true
+				continue
 			}
+			if output, err := runCommand("iptables", "--insert", chain, "--source", ip, "--jump", "DROP"); err != nil {
+				firstErr = logFirewallChainError(firstErr, "ban", chain, err, output)
+				continue
+			}
+			succeeded = true
 		}
 	case "nftables":
 		for _, chain := range f.chains {
-			if output, err := runCommand("nft", "insert", "rule", "inet", "filter", chain, "ip", "saddr", ip, "drop"); err != nil {
-				return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w: %v: %s", ip, ErrCantBanIP, err, output)
+			if f.hasRule(chain, ip) {
+				succeeded = true
+				continue
 			}
+			if output, err := runCommand("nft", "insert", "rule", "inet", "filter", chain, "ip", "saddr", ip, "drop"); err != nil {
+				firstErr = logFirewallChainError(firstErr, "ban", chain, err, output)
+				continue
+			}
+			succeeded = true
 		}
 	case "firewalld":
 		for _, chain := range f.chains {
-			if err := f.changeFirewalldRule(chain, "--add-rich-rule", ip, ErrCantBanIP); err != nil {
-				return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w", ip, err)
+			if f.hasRule(chain, ip) {
+				succeeded = true
+				continue
 			}
+			if err := f.changeFirewalldRule(chain, "--add-rich-rule", ip, ErrCantBanIP); err != nil {
+				firstErr = logFirewallChainError(firstErr, "ban", chain, err, nil)
+				continue
+			}
+			succeeded = true
 		}
+	}
+	if !succeeded && firstErr != nil {
+		return fmt.Errorf("banpool.firewall.Ban(ip: %s) -> %w", ip, firstErr)
 	}
 	return nil
 }
@@ -149,34 +168,55 @@ func (f *firewall) Unban(ip string) error {
 		return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w", ip, err)
 	}
 
-	if !f.hasRule(ip) {
-		return nil
-	}
-
+	var firstErr error
 	switch f.fwEngine {
 	case "iptables":
 		for _, chain := range f.chains {
+			if !f.hasRule(chain, ip) {
+				continue
+			}
 			if output, err := runCommand("iptables", "--delete", chain, "--source", ip, "--jump", "DROP"); err != nil {
-				return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w: %v: %s", ip, ErrCantUnbanIP, err, output)
+				firstErr = logFirewallChainError(firstErr, "unban", chain, err, output)
 			}
 		}
 
 	case "nftables":
 		for _, chain := range f.chains {
+			if !f.hasRule(chain, ip) {
+				continue
+			}
 			if err := f.deleteNftablesRule(chain, ip); err != nil {
-				return err
+				firstErr = logFirewallChainError(firstErr, "unban", chain, err, nil)
 			}
 		}
 
 	case "firewalld":
 		for _, chain := range f.chains {
+			if !f.hasRule(chain, ip) {
+				continue
+			}
 			if err := f.changeFirewalldRule(chain, "--remove-rich-rule", ip, ErrCantUnbanIP); err != nil {
-				return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w", ip, err)
+				firstErr = logFirewallChainError(firstErr, "unban", chain, err, nil)
 			}
 		}
 	}
+	if firstErr != nil {
+		return fmt.Errorf("banpool.firewall.Unban(ip: %s) -> %w", ip, firstErr)
+	}
 
 	return nil
+}
+
+func logFirewallChainError(firstErr error, operation, chain string, err error, output []byte) error {
+	chainErr := fmt.Errorf("%w: chain %s: %v: %s", ErrCantBanIP, chain, err, output)
+	if operation == "unban" {
+		chainErr = fmt.Errorf("%w: chain %s: %v: %s", ErrCantUnbanIP, chain, err, output)
+	}
+	log.Printf("firewall: %s failed: %v", operation, chainErr)
+	if firstErr != nil {
+		return firstErr
+	}
+	return chainErr
 }
 
 func (f *firewall) deleteNftablesRule(chain, ip string) error {
@@ -216,38 +256,25 @@ func (f *firewall) changeFirewalldRule(chain, operation, ip string, failure erro
 	return nil
 }
 
-func (f *firewall) hasRule(ip string) bool {
+func (f *firewall) hasRule(chain, ip string) bool {
 	switch f.fwEngine {
 	case "iptables":
-		for _, chain := range f.chains {
-			if _, err := runCommand("iptables", "--check", chain, "--source", ip, "--jump", "DROP"); err != nil {
-				return false
-			}
-		}
-		return true
+		_, err := runCommand("iptables", "--check", chain, "--source", ip, "--jump", "DROP")
+		return err == nil
 
 	case "nftables":
-		for _, chain := range f.chains {
-			output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", chain)
-			if err != nil || !strings.Contains(string(output), fmt.Sprintf("ip saddr %s drop", ip)) {
-				return false
-			}
-		}
-		return true
+		output, err := runCommand("nft", "-a", "list", "chain", "inet", "filter", chain)
+		return err == nil && strings.Contains(string(output), fmt.Sprintf("ip saddr %s drop", ip))
 
 	case "firewalld":
-		for _, chain := range f.chains {
-			args := []string{"--query-rich-rule", fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip)}
-			if chain == dockerUserChain {
-				args = []string{"--policy", firewalldDockerPolicy, "--query-rich-rule", fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip)}
-			} else if chain != "INPUT" {
-				return false
-			}
-			if _, err := runCommand("firewall-cmd", args...); err != nil {
-				return false
-			}
+		args := []string{"--query-rich-rule", fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip)}
+		if chain == dockerUserChain {
+			args = []string{"--policy", firewalldDockerPolicy, "--query-rich-rule", fmt.Sprintf(`rule family="ipv4" source address="%s" drop`, ip)}
+		} else if chain != "INPUT" {
+			return false
 		}
-		return true
+		_, err := runCommand("firewall-cmd", args...)
+		return err == nil
 	}
 
 	return false
