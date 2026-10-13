@@ -86,6 +86,7 @@ type Config struct {
 	IPWhiteList        []string              `yaml:"ip_whitelist" json:"ip_whitelist" comment:"these addresses are never banned, the addresses of the machine itself are put here on the first run"`
 	BlockedIPsDatabase string                `yaml:"blocked_ips_database" json:"blocked_ips_database" comment:"the bans outlive a restart of the daemon, they are kept here"`
 	FirewallEngine     string                `yaml:"firewall_engine" json:"firewall_engine" comment:"iptables, nftables, firewalld"`
+	FirewallChains     []string              `yaml:"firewall_chains" json:"firewall_chains" comment:"your firewall chains to ban, for example (INPUT, DOCKER-USER, etc.)"`
 	Exporter           ExporterConfig        `yaml:"exporter" json:"exporter" comment:"settings for export events to dashboard"`
 	SSHMonitor         SSHMonitorConfig      `yaml:"ssh_monitor" json:"ssh_monitor" comment:"failed ssh logins"`
 	WebReconMonitor    WebReconMonitorConfig `yaml:"web_recon_monitor" json:"web_recon_monitor" comment:"scanning of the web server for the paths that are not there"`
@@ -187,6 +188,7 @@ func New() *Config {
 			},
 		},
 	}
+	config.setFirewallChains()
 	return config
 }
 
@@ -363,13 +365,34 @@ func (c *Config) LoadConfig(path string) error {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrReadConfig, err)
 	}
 
+	// yaml.Unmarshal preserves fields that are not present in the document.
+	// Clear this migration field so a legacy config gets chains for the engine
+	// it actually declares, rather than New()'s iptables defaults.
+	c.FirewallChains = nil
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
 	}
+
+	c.setFirewallChains()
 
 	if err := c.SaveConfig(path); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (c *Config) setFirewallChains() {
+	if len(c.FirewallChains) != 0 {
+		return
+	}
+
+	switch c.FirewallEngine {
+	case "iptables":
+		c.FirewallChains = []string{"INPUT", "DOCKER-USER"}
+	case "nftables":
+		c.FirewallChains = []string{"open_defender", "open_defender_forward"}
+	case "firewalld":
+		c.FirewallChains = []string{"INPUT", "DOCKER-USER"}
+	}
 }

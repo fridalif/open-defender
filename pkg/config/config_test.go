@@ -90,6 +90,7 @@ func TestValidateProblems(t *testing.T) {
 	}{
 		{"empty database", func(c *Config) { c.BlockedIPsDatabase = "  " }, ErrEmptyValue},
 		{"bad firewall engine", func(c *Config) { c.FirewallEngine = "unknown" }, ErrInvalidValue},
+		{"empty firewall chains", func(c *Config) { c.FirewallChains = []string{} }, ErrEmptyValue},
 		{"bad whitelist ip", func(c *Config) { c.IPWhiteList = []string{"nope"} }, ErrInvalidIP},
 		{"bad mode", func(c *Config) { c.SSHMonitor.Mode = "banana" }, ErrInvalidValue},
 		{"bad engine", func(c *Config) { c.SSHMonitor.Mode = "logger"; c.SSHMonitor.Engine = "smoke" }, ErrInvalidValue},
@@ -211,6 +212,47 @@ func TestMonitorsAndFields(t *testing.T) {
 	}
 	if got := (&BaseFields{Engine: "journal", LogPath: "/l", UnitName: "u"}).Source(); got != "u" {
 		t.Errorf("Source() = %q, want u", got)
+	}
+}
+
+func TestSetFirewallChains(t *testing.T) {
+	tests := []struct {
+		name   string
+		engine string
+		chains []string
+		want   []string
+	}{
+		{"iptables defaults", "iptables", nil, []string{"INPUT", "DOCKER-USER"}},
+		{"nftables defaults", "nftables", nil, []string{"open_defender", "open_defender_forward"}},
+		{"firewalld defaults", "firewalld", nil, []string{"INPUT", "DOCKER-USER"}},
+		{"manual chains preserved", "iptables", []string{"CUSTOM"}, []string{"CUSTOM"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := New()
+			cfg.FirewallEngine = tt.engine
+			cfg.FirewallChains = tt.chains
+			cfg.setFirewallChains()
+			if !reflect.DeepEqual(cfg.FirewallChains, tt.want) {
+				t.Fatalf("FirewallChains = %v, want %v", cfg.FirewallChains, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfigAddsChainsForSelectedFirewallEngine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("firewall_engine: nftables\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := New()
+	if err := cfg.LoadConfig(path); err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if want := []string{"open_defender", "open_defender_forward"}; !reflect.DeepEqual(cfg.FirewallChains, want) {
+		t.Fatalf("FirewallChains = %v, want %v", cfg.FirewallChains, want)
 	}
 }
 

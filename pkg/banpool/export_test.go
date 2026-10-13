@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func NewBanPoolForTest(repository Repository, firewall Firewall) BanPool {
@@ -19,6 +20,16 @@ func NewRepositoryForTest(db DB) Repository {
 
 func WaitUnbanForTest(bp BanPool, ctx context.Context, ban *Ban) {
 	bp.(*banPool).waitUnban(ctx, ban)
+}
+
+func SetUnbanRetryIntervalForTest(interval time.Duration) func() {
+	original := unbanRetryInterval
+	unbanRetryInterval = interval
+	return func() { unbanRetryInterval = original }
+}
+
+func MaxUnbanRetriesForTest() int {
+	return maxUnbanRetries
 }
 
 func stubRunCommand(t *testing.T, fn func(name string, args ...string) ([]byte, error)) {
@@ -80,6 +91,90 @@ func TestFirewallBan(t *testing.T) {
 	}
 	if len(calls) != 2 || !hasArg(calls[1], "--insert") {
 		t.Fatalf("Ban() calls = %v, want --check then --insert", calls)
+	}
+}
+
+func TestFirewallBanUsesConfiguredIPTablesChain(t *testing.T) {
+	var calls [][]string
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if hasArg(args, "--check") {
+			return nil, errors.New("no rule")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"DOCKER-USER"})
+	if err := fw.Ban("10.0.0.1"); err != nil {
+		t.Fatalf("Ban() error: %v", err)
+	}
+	for _, call := range calls {
+		if hasArg(call, "DOCKER-USER") {
+			return
+		}
+	}
+	t.Fatalf("iptables calls = %v, want DOCKER-USER", calls)
+}
+
+func TestFirewallBanSucceedsWhenOneConfiguredChainFails(t *testing.T) {
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "--check") {
+			return nil, errors.New("no rule")
+		}
+		if hasArg(args, "DOCKER-USER") {
+			return []byte("missing chain"), errors.New("exit 1")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"INPUT", "DOCKER-USER"})
+	if err := fw.Ban("10.0.0.1"); err != nil {
+		t.Fatalf("Ban() error = %v, want success when INPUT was updated", err)
+	}
+}
+
+func TestFirewallUnbanAttemptsEveryConfiguredChain(t *testing.T) {
+	var dockerDelete bool
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "--check") {
+			return nil, nil
+		}
+		if hasArg(args, "--delete") && hasArg(args, "DOCKER-USER") {
+			dockerDelete = true
+			return nil, nil
+		}
+		if hasArg(args, "--delete") {
+			return []byte("failed"), errors.New("exit 1")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"INPUT", "DOCKER-USER"})
+	if err := fw.Unban("10.0.0.1"); !errors.Is(err, ErrCantUnbanIP) {
+		t.Fatalf("Unban() error = %v, want ErrCantUnbanIP", err)
+	}
+	if !dockerDelete {
+		t.Fatal("Unban() did not try DOCKER-USER after INPUT failed")
+	}
+}
+
+func TestNewFirewallCreatesNftablesForwardChainBeforeDocker(t *testing.T) {
+	var addChain []string
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "list") {
+			return nil, errors.New("missing")
+		}
+		if hasArg(args, "chain") {
+			addChain = args
+		}
+		return nil, nil
+	})
+
+	if _, err := NewFirewall("nftables", []string{nftablesForwardBanChain}); err != nil {
+		t.Fatalf("NewFirewall() error: %v", err)
+	}
+	if !hasArg(addChain, "{ type filter hook forward priority filter - 1; policy accept; }") {
+		t.Fatalf("nft add-chain arguments = %v, want forward chain before Docker", addChain)
 	}
 }
 

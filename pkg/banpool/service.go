@@ -24,12 +24,17 @@ type banPool struct {
 	mutex      sync.Mutex
 }
 
+const maxUnbanRetries = 5
+
+var unbanRetryInterval = time.Minute
+
 func New(cfg *config.Config) (BanPool, error) {
 	repository, err := NewRepository(cfg.BlockedIPsDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("banpool.New() -> %w", err)
 	}
-	fw, err := NewFirewall(cfg.FirewallEngine)
+	filterDockerChainsWithoutDockerEngine(cfg)
+	fw, err := NewFirewall(cfg.FirewallEngine, cfg.FirewallChains)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +42,43 @@ func New(cfg *config.Config) (BanPool, error) {
 		repository: repository,
 		firewall:   fw,
 	}, nil
+}
+
+func filterDockerChainsWithoutDockerEngine(cfg *config.Config) {
+	hasDockerEngine := false
+	for _, monitor := range cfg.Monitors() {
+		if monitor.Fields.Engine == "docker" {
+			hasDockerEngine = true
+			break
+		}
+	}
+	if hasDockerEngine {
+		return
+	}
+
+	dockerChain := "DOCKER-USER"
+	if cfg.FirewallEngine == "nftables" {
+		dockerChain = nftablesForwardBanChain
+	}
+	foundDockerChain := false
+	for _, chain := range cfg.FirewallChains {
+		if chain == dockerChain {
+			foundDockerChain = true
+			break
+		}
+	}
+	if !foundDockerChain {
+		return
+	}
+
+	chains := make([]string, 0, len(cfg.FirewallChains)-1)
+	for _, chain := range cfg.FirewallChains {
+		if chain != dockerChain {
+			chains = append(chains, chain)
+		}
+	}
+	cfg.FirewallChains = chains
+	log.Printf("No monitor uses engine docker; ignoring firewall chain %q for this run", dockerChain)
 }
 
 func (bp *banPool) RestoreBans(ctx context.Context) error {
@@ -143,41 +185,68 @@ func (bp *banPool) extendBan(ban *Ban, bannedUntil time.Time) error {
 }
 
 func (bp *banPool) waitUnban(ctx context.Context, ban *Ban) {
+	retries := 0
 	for {
-		time.Sleep(time.Until(ban.BannedUntil))
+		if !waitForContext(ctx, time.Until(ban.BannedUntil)) {
+			return
+		}
+
+		for {
+			bp.mutex.Lock()
+			current, err := bp.repository.Get(ban.IP)
+			if err != nil {
+				if !errors.Is(err, ErrBanNotFound) {
+					log.Println(err)
+				}
+				bp.mutex.Unlock()
+				return
+			}
+
+			if current.ID != ban.ID {
+				bp.mutex.Unlock()
+				return
+			}
+
+			if current.BannedUntil.After(time.Now()) {
+				ban = current
+				bp.mutex.Unlock()
+				break
+			}
+
+			err = bp.unban(ban.IP)
+			bp.mutex.Unlock()
+			if err == nil {
+				return
+			}
+			log.Println(err)
+			if retries == maxUnbanRetries {
+				return
+			}
+			retries++
+			if !waitForContext(ctx, unbanRetryInterval) {
+				return
+			}
+		}
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		default:
+			return true
 		}
-		bp.mutex.Lock()
+	}
 
-		current, err := bp.repository.Get(ban.IP)
-		if err != nil {
-			if !errors.Is(err, ErrBanNotFound) {
-				log.Println(err)
-			}
-			bp.mutex.Unlock()
-			return
-		}
-
-		if current.ID != ban.ID {
-			bp.mutex.Unlock()
-			return
-		}
-
-		if current.BannedUntil.After(time.Now()) {
-			ban = current
-			bp.mutex.Unlock()
-			continue
-		}
-
-		if err := bp.unban(ban.IP); err != nil {
-			log.Println(err)
-		}
-
-		bp.mutex.Unlock()
-		return
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
