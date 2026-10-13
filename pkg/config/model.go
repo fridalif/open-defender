@@ -395,21 +395,21 @@ func (c *Config) setFirewallChains() {
 		if !slices.Contains(c.FirewallChains, "INPUT") {
 			c.FirewallChains = append(c.FirewallChains, "INPUT")
 		}
-		if hasDockerBlocker {
+		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "DOCKER-USER") {
 			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
 		}
 	case "nftables":
 		if !slices.Contains(c.FirewallChains, "open_defender") {
 			c.FirewallChains = append(c.FirewallChains, "open_defender")
 		}
-		if hasDockerBlocker {
+		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "open_defender_forward") {
 			c.FirewallChains = append(c.FirewallChains, "open_defender_forward")
 		}
 	case "firewalld":
 		if !slices.Contains(c.FirewallChains, "INPUT") {
 			c.FirewallChains = append(c.FirewallChains, "INPUT")
 		}
-		if hasDockerBlocker {
+		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "DOCKER-USER") {
 			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
 		}
 	}
