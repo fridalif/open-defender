@@ -24,6 +24,10 @@ type banPool struct {
 	mutex      sync.Mutex
 }
 
+const maxUnbanRetries = 5
+
+var unbanRetryInterval = time.Minute
+
 func New(cfg *config.Config) (BanPool, error) {
 	repository, err := NewRepository(cfg.BlockedIPsDatabase)
 	if err != nil {
@@ -143,41 +147,68 @@ func (bp *banPool) extendBan(ban *Ban, bannedUntil time.Time) error {
 }
 
 func (bp *banPool) waitUnban(ctx context.Context, ban *Ban) {
+	retries := 0
 	for {
-		time.Sleep(time.Until(ban.BannedUntil))
+		if !waitForContext(ctx, time.Until(ban.BannedUntil)) {
+			return
+		}
+
+		for {
+			bp.mutex.Lock()
+			current, err := bp.repository.Get(ban.IP)
+			if err != nil {
+				if !errors.Is(err, ErrBanNotFound) {
+					log.Println(err)
+				}
+				bp.mutex.Unlock()
+				return
+			}
+
+			if current.ID != ban.ID {
+				bp.mutex.Unlock()
+				return
+			}
+
+			if current.BannedUntil.After(time.Now()) {
+				ban = current
+				bp.mutex.Unlock()
+				break
+			}
+
+			err = bp.unban(ban.IP)
+			bp.mutex.Unlock()
+			if err == nil {
+				return
+			}
+			log.Println(err)
+			if retries == maxUnbanRetries {
+				return
+			}
+			retries++
+			if !waitForContext(ctx, unbanRetryInterval) {
+				return
+			}
+		}
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		default:
+			return true
 		}
-		bp.mutex.Lock()
+	}
 
-		current, err := bp.repository.Get(ban.IP)
-		if err != nil {
-			if !errors.Is(err, ErrBanNotFound) {
-				log.Println(err)
-			}
-			bp.mutex.Unlock()
-			return
-		}
-
-		if current.ID != ban.ID {
-			bp.mutex.Unlock()
-			return
-		}
-
-		if current.BannedUntil.After(time.Now()) {
-			ban = current
-			bp.mutex.Unlock()
-			continue
-		}
-
-		if err := bp.unban(ban.IP); err != nil {
-			log.Println(err)
-		}
-
-		bp.mutex.Unlock()
-		return
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

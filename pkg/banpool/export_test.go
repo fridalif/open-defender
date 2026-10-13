@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func NewBanPoolForTest(repository Repository, firewall Firewall) BanPool {
@@ -19,6 +20,16 @@ func NewRepositoryForTest(db DB) Repository {
 
 func WaitUnbanForTest(bp BanPool, ctx context.Context, ban *Ban) {
 	bp.(*banPool).waitUnban(ctx, ban)
+}
+
+func SetUnbanRetryIntervalForTest(interval time.Duration) func() {
+	original := unbanRetryInterval
+	unbanRetryInterval = interval
+	return func() { unbanRetryInterval = original }
+}
+
+func MaxUnbanRetriesForTest() int {
+	return maxUnbanRetries
 }
 
 func stubRunCommand(t *testing.T, fn func(name string, args ...string) ([]byte, error)) {

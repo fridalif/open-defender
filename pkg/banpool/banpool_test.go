@@ -328,6 +328,7 @@ func TestWaitUnban(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mocks.NewMockRepository(ctrl)
 		fw := mocks.NewMockFirewall(ctrl)
+		t.Cleanup(banpool.SetUnbanRetryIntervalForTest(time.Millisecond))
 
 		calls := 0
 		repo.EXPECT().Get("1.2.3.4").DoAndReturn(func(string) (*banpool.Ban, error) {
@@ -336,8 +337,8 @@ func TestWaitUnban(t *testing.T) {
 				return &banpool.Ban{ID: 1, IP: "1.2.3.4", BannedUntil: time.Now().Add(20 * time.Millisecond)}, nil
 			}
 			return &banpool.Ban{ID: 1, IP: "1.2.3.4", BannedUntil: time.Now().Add(-time.Minute)}, nil
-		}).Times(3)
-		fw.EXPECT().Unban("1.2.3.4").Return(banpool.ErrCantUnbanIP)
+		}).AnyTimes()
+		fw.EXPECT().Unban("1.2.3.4").Return(banpool.ErrCantUnbanIP).Times(banpool.MaxUnbanRetriesForTest() + 1)
 
 		bp := banpool.NewBanPoolForTest(repo, fw)
 		banpool.WaitUnbanForTest(bp, context.Background(), &banpool.Ban{ID: 1, IP: "1.2.3.4", BannedUntil: time.Now().Add(-time.Minute)})
