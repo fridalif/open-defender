@@ -34,6 +34,14 @@ func (c *Config) Validate() []error {
 	if !slices.Contains(validFirewallEngines, c.FirewallEngine) {
 		problems = append(problems, fmt.Errorf("firewall_engine: %w: %q, expected one of: %s", ErrInvalidValue, c.FirewallEngine, strings.Join(validFirewallEngines, ", ")))
 	}
+	if c.FirewallChains != nil && len(c.FirewallChains) == 0 {
+		problems = append(problems, fmt.Errorf("firewall_chains: %w", ErrEmptyValue))
+	}
+	for _, chain := range c.FirewallChains {
+		if strings.TrimSpace(chain) == "" {
+			problems = append(problems, fmt.Errorf("firewall_chains: %w", ErrEmptyValue))
+		}
+	}
 
 	for _, ip := range c.IPWhiteList {
 		if net.ParseIP(ip) == nil {

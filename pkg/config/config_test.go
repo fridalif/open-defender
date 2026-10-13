@@ -90,6 +90,7 @@ func TestValidateProblems(t *testing.T) {
 	}{
 		{"empty database", func(c *Config) { c.BlockedIPsDatabase = "  " }, ErrEmptyValue},
 		{"bad firewall engine", func(c *Config) { c.FirewallEngine = "unknown" }, ErrInvalidValue},
+		{"empty firewall chains", func(c *Config) { c.FirewallChains = []string{} }, ErrEmptyValue},
 		{"bad whitelist ip", func(c *Config) { c.IPWhiteList = []string{"nope"} }, ErrInvalidIP},
 		{"bad mode", func(c *Config) { c.SSHMonitor.Mode = "banana" }, ErrInvalidValue},
 		{"bad engine", func(c *Config) { c.SSHMonitor.Mode = "logger"; c.SSHMonitor.Engine = "smoke" }, ErrInvalidValue},

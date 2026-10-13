@@ -173,7 +173,7 @@ func TestNewFirewallCreatesNftablesForwardChainBeforeDocker(t *testing.T) {
 	if _, err := NewFirewall("nftables", []string{nftablesForwardBanChain}); err != nil {
 		t.Fatalf("NewFirewall() error: %v", err)
 	}
-	if !hasArg(addChain, "priority filter - 1; policy accept; }") {
+	if !hasArg(addChain, "{ type filter hook forward priority filter - 1; policy accept; }") {
 		t.Fatalf("nft add-chain arguments = %v, want forward chain before Docker", addChain)
 	}
 }

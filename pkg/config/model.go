@@ -364,6 +364,10 @@ func (c *Config) LoadConfig(path string) error {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrReadConfig, err)
 	}
 
+	// yaml.Unmarshal preserves fields that are not present in the document.
+	// Clear this migration field so a legacy config gets chains for the engine
+	// it actually declares, rather than New()'s iptables defaults.
+	c.FirewallChains = nil
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
 	}
