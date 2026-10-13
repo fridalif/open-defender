@@ -102,7 +102,10 @@ func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
 		FirewallEngine:     "iptables",
-		FirewallChains:     []string{"INPUT"},
+		FirewallChains: []string{
+			"INPUT",
+			"DOCKER-USER",
+		},
 		Exporter: ExporterConfig{
 			Enabled:              false,
 			EndpointAddress:      "wss://connector.light-defender.ru/ (get this in dashboard.light-defender.ru)",
@@ -369,9 +372,36 @@ func (c *Config) LoadConfig(path string) error {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
 	}
 
+	c.setFirewallChains()
+
 	if err := c.SaveConfig(path); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (c *Config) setFirewallChains() {
+	hasDockerEngine := c.DatabaseMonitor.Engine == "docker" ||
+		c.SSHMonitor.Engine == "docker" ||
+		c.WebBruteMonitor.Engine == "docker" ||
+		c.WebReconMonitor.Engine == "docker"
+
+	switch c.FirewallEngine {
+	case "iptables":
+		c.FirewallChains = []string{"INPUT"}
+		if hasDockerEngine {
+			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
+		}
+	case "nftables":
+		c.FirewallChains = []string{"open_defender"}
+		if hasDockerEngine {
+			c.FirewallChains = append(c.FirewallChains, "open_defender_forward")
+		}
+	case "firewalld":
+		c.FirewallChains = []string{"INPUT"}
+		if hasDockerEngine {
+			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
+		}
+	}
 }

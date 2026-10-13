@@ -83,6 +83,48 @@ func TestFirewallBan(t *testing.T) {
 	}
 }
 
+func TestFirewallBanUsesConfiguredIPTablesChain(t *testing.T) {
+	var calls [][]string
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if hasArg(args, "--check") {
+			return nil, errors.New("no rule")
+		}
+		return nil, nil
+	})
+
+	fw, _ := NewFirewall("iptables", []string{"DOCKER-USER"})
+	if err := fw.Ban("10.0.0.1"); err != nil {
+		t.Fatalf("Ban() error: %v", err)
+	}
+	for _, call := range calls {
+		if hasArg(call, "DOCKER-USER") {
+			return
+		}
+	}
+	t.Fatalf("iptables calls = %v, want DOCKER-USER", calls)
+}
+
+func TestNewFirewallCreatesNftablesForwardChainBeforeDocker(t *testing.T) {
+	var addChain []string
+	stubRunCommand(t, func(name string, args ...string) ([]byte, error) {
+		if hasArg(args, "list") {
+			return nil, errors.New("missing")
+		}
+		if hasArg(args, "chain") {
+			addChain = args
+		}
+		return nil, nil
+	})
+
+	if _, err := NewFirewall("nftables", []string{nftablesForwardBanChain}); err != nil {
+		t.Fatalf("NewFirewall() error: %v", err)
+	}
+	if !hasArg(addChain, "priority filter - 1; policy accept; }") {
+		t.Fatalf("nft add-chain arguments = %v, want forward chain before Docker", addChain)
+	}
+}
+
 func TestFirewallBanAlreadyPresent(t *testing.T) {
 	calls := 0
 	stubRunCommand(t, func(string, ...string) ([]byte, error) {

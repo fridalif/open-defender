@@ -29,7 +29,7 @@ func New(cfg *config.Config) (BanPool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("banpool.New() -> %w", err)
 	}
-	fw, err := NewFirewall(cfg.FirewallEngine)
+	fw, err := NewFirewall(cfg.FirewallEngine, cfg.FirewallChains)
 	if err != nil {
 		return nil, err
 	}
