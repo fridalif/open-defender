@@ -382,35 +382,16 @@ func (c *Config) LoadConfig(path string) error {
 }
 
 func (c *Config) setFirewallChains() {
-	hasDockerBlocker := false
-	for _, monitor := range c.Monitors() {
-		if monitor.Fields.Mode == modeBlocker && monitor.Fields.Engine == "docker" {
-			hasDockerBlocker = true
-			break
-		}
+	if len(c.FirewallChains) != 0 {
+		return
 	}
 
 	switch c.FirewallEngine {
 	case "iptables":
-		if !slices.Contains(c.FirewallChains, "INPUT") {
-			c.FirewallChains = append(c.FirewallChains, "INPUT")
-		}
-		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "DOCKER-USER") {
-			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
-		}
+		c.FirewallChains = []string{"INPUT", "DOCKER-USER"}
 	case "nftables":
-		if !slices.Contains(c.FirewallChains, "open_defender") {
-			c.FirewallChains = append(c.FirewallChains, "open_defender")
-		}
-		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "open_defender_forward") {
-			c.FirewallChains = append(c.FirewallChains, "open_defender_forward")
-		}
+		c.FirewallChains = []string{"open_defender", "open_defender_forward"}
 	case "firewalld":
-		if !slices.Contains(c.FirewallChains, "INPUT") {
-			c.FirewallChains = append(c.FirewallChains, "INPUT")
-		}
-		if hasDockerBlocker && !slices.Contains(c.FirewallChains, "DOCKER-USER") {
-			c.FirewallChains = append(c.FirewallChains, "DOCKER-USER")
-		}
+		c.FirewallChains = []string{"INPUT", "DOCKER-USER"}
 	}
 }

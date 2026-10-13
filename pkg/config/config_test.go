@@ -214,6 +214,32 @@ func TestMonitorsAndFields(t *testing.T) {
 	}
 }
 
+func TestSetFirewallChains(t *testing.T) {
+	tests := []struct {
+		name   string
+		engine string
+		chains []string
+		want   []string
+	}{
+		{"iptables defaults", "iptables", nil, []string{"INPUT", "DOCKER-USER"}},
+		{"nftables defaults", "nftables", nil, []string{"open_defender", "open_defender_forward"}},
+		{"firewalld defaults", "firewalld", nil, []string{"INPUT", "DOCKER-USER"}},
+		{"manual chains preserved", "iptables", []string{"CUSTOM"}, []string{"CUSTOM"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := New()
+			cfg.FirewallEngine = tt.engine
+			cfg.FirewallChains = tt.chains
+			cfg.setFirewallChains()
+			if !reflect.DeepEqual(cfg.FirewallChains, tt.want) {
+				t.Fatalf("FirewallChains = %v, want %v", cfg.FirewallChains, tt.want)
+			}
+		})
+	}
+}
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
 

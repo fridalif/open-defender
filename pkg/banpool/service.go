@@ -33,6 +33,7 @@ func New(cfg *config.Config) (BanPool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("banpool.New() -> %w", err)
 	}
+	filterDockerChainsWithoutDockerEngine(cfg)
 	fw, err := NewFirewall(cfg.FirewallEngine, cfg.FirewallChains)
 	if err != nil {
 		return nil, err
@@ -41,6 +42,43 @@ func New(cfg *config.Config) (BanPool, error) {
 		repository: repository,
 		firewall:   fw,
 	}, nil
+}
+
+func filterDockerChainsWithoutDockerEngine(cfg *config.Config) {
+	hasDockerEngine := false
+	for _, monitor := range cfg.Monitors() {
+		if monitor.Fields.Engine == "docker" {
+			hasDockerEngine = true
+			break
+		}
+	}
+	if hasDockerEngine {
+		return
+	}
+
+	dockerChain := "DOCKER-USER"
+	if cfg.FirewallEngine == "nftables" {
+		dockerChain = nftablesForwardBanChain
+	}
+	foundDockerChain := false
+	for _, chain := range cfg.FirewallChains {
+		if chain == dockerChain {
+			foundDockerChain = true
+			break
+		}
+	}
+	if !foundDockerChain {
+		return
+	}
+
+	chains := make([]string, 0, len(cfg.FirewallChains)-1)
+	for _, chain := range cfg.FirewallChains {
+		if chain != dockerChain {
+			chains = append(chains, chain)
+		}
+	}
+	cfg.FirewallChains = chains
+	log.Printf("Docker daemon is unavailable; ignoring firewall chain %q for this run", dockerChain)
 }
 
 func (bp *banPool) RestoreBans(ctx context.Context) error {
