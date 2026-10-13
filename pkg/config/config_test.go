@@ -240,6 +240,21 @@ func TestSetFirewallChains(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAddsChainsForSelectedFirewallEngine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("firewall_engine: nftables\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := New()
+	if err := cfg.LoadConfig(path); err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if want := []string{"open_defender", "open_defender_forward"}; !reflect.DeepEqual(cfg.FirewallChains, want) {
+		t.Fatalf("FirewallChains = %v, want %v", cfg.FirewallChains, want)
+	}
+}
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
 

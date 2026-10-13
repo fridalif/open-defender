@@ -102,10 +102,6 @@ func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
 		FirewallEngine:     "iptables",
-		FirewallChains: []string{
-			"INPUT",
-			"DOCKER-USER",
-		},
 		Exporter: ExporterConfig{
 			Enabled:              false,
 			EndpointAddress:      "wss://connector.light-defender.ru/ (get this in dashboard.light-defender.ru)",

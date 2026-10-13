@@ -78,7 +78,7 @@ func filterDockerChainsWithoutDockerEngine(cfg *config.Config) {
 		}
 	}
 	cfg.FirewallChains = chains
-	log.Printf("Docker daemon is unavailable; ignoring firewall chain %q for this run", dockerChain)
+	log.Printf("No monitor uses engine docker; ignoring firewall chain %q for this run", dockerChain)
 }
 
 func (bp *banPool) RestoreBans(ctx context.Context) error {
