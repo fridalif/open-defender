@@ -61,6 +61,13 @@ type EbpfNetworkAntireconConfig struct {
 	BlacklistPorts []uint64 `yaml:"blacklist_ports" json:"blacklist_ports" comment:"ports which must ban ip when scanned at once"`
 }
 
+type UserCommandExecutionController struct {
+	Mode           string   `yaml:"mode" json:"mode" comment:"disabled, logger, blocker"`
+	BlockType      string   `yaml:"block_type" json:"block_type" comment:"positive(acknowledge all not in block), negative(acknowledge only exceptions)"`
+	TargetUsersIDs []string `yaml:"target_users_ids" json:"target_users_ids" comment:"target uids for block or ignore (addiction block_type)"`
+	TargetCommands []string `yaml:"target_commands" json:"target_commands" comment:"target commands for block or ignore (addiction block_type)"`
+}
+
 type ResourceMonitorConfig struct {
 	Enabled              bool           `yaml:"enabled" json:"enabled"`
 	CpuUsagePersentage   ResourceFields `yaml:"cpu_usage_persentage" json:"cpu_usage_persentage" comment:"cpu usage of the whole machine, percents"`
@@ -71,7 +78,8 @@ type ResourceMonitorConfig struct {
 }
 
 type EbpfConfig struct {
-	NetworkAntirecon EbpfNetworkAntireconConfig `yaml:"network_antirecon" json:"network_antirecon" comment:"tcp and udp port antiscan"`
+	NetworkAntirecon      EbpfNetworkAntireconConfig     `yaml:"network_antirecon" json:"network_antirecon" comment:"tcp and udp port antiscan"`
+	UserCommandController UserCommandExecutionController `yaml:"user_command_controller" json:"user_command_controller" comment:"command execution controller. can block or log command execution from definite users and commands"`
 }
 
 type ExporterConfig struct {
