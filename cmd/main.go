@@ -12,7 +12,7 @@ func main() {
 	os.Exit(run(os.Args, app.New, os.Geteuid() == 0))
 }
 
-func run(args []string, newApp func() app.App, isRoot bool) int {
+func run(args []string, newApp func() app.App, isRoot bool, isLSMActive bool) int {
 	runConfig, err := config.ParseArgs(args)
 	if err != nil {
 		log.Println(err)
