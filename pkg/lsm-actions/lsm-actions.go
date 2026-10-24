@@ -3,17 +3,12 @@ package lsmactions
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 type LSMActionsI interface {
 	CheckIsActive() (bool, error)
-	overrideGRUB() error
-	updateGRUB() error
-	getGRUBCmdlineLinuxDefault() (string, error)
-	restartSystem() error
-	Dialog() error
+	WriteLSMHelperMessage()
 }
 
 type lsmActions struct {
@@ -21,10 +16,6 @@ type lsmActions struct {
 
 func NewLSMActions() LSMActionsI {
 	return &lsmActions{}
-}
-
-func (la *lsmActions) Dialog() error {
-	return nil
 }
 
 func (la *lsmActions) CheckIsActive() (bool, error) {
@@ -35,56 +26,19 @@ func (la *lsmActions) CheckIsActive() (bool, error) {
 	return strings.Contains(string(data), "bpf"), nil
 }
 
-func (la *lsmActions) getGRUBCmdlineLinuxDefault() (string, error) {
-	const (
-		grubConfig = "/etc/default/grub"
-		dropInDir  = "/etc/default/grub.d"
-		key        = "GRUB_CMDLINE_LINUX_DEFAULT="
-	)
-	files := []string{grubConfig}
-	entries, err := os.ReadDir(dropInDir)
-	if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("read %s: %w", dropInDir, err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".cfg") {
-			files = append(files, filepath.Join(dropInDir, entry.Name()))
-		}
-	}
+func (la *lsmActions) WriteLSMHelperMessage() {
+	fmt.Println("It is possible that BPF LSM is not enabled; check this, and if it is indeed disabled, enable it in GRUB and reboot the system.")
+	fmt.Println("Modules which cant work without LSM:")
+	fmt.Println("\t- User Command Controller")
+	fmt.Println("For help write in Github Issues")
+	fmt.Println("How check and add to GRUB (ensure neatness, always do grub backup):")
+	fmt.Println("\t1) Check file /sys/kernel/security/lsm")
+	fmt.Println("\t\t- if not exists possible disabled;")
+	fmt.Println("\t\t- if exists and not contains bpf - disabled;")
+	fmt.Println("\t2) Read /etc/default/grub file and /etc/default/grub.d folder")
+	fmt.Println("\t\t- if substring lsm= not exists not in a single file append lsm=</sys/kernel/security/lsm content>,bpf in last file")
+	fmt.Println("\t\t- if exists and not contains bpf module append this")
+	fmt.Println("\t3) Execute command update-grub")
+	fmt.Println("\t4) Restart system")
 
-	var commandLine string
-	found := false
-	for _, file := range files {
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			return commandLine, fmt.Errorf("read %s: %w", file, err)
-		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), key))
-			if !strings.HasPrefix(strings.TrimSpace(line), key) {
-				continue
-			}
-			if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
-				return commandLine, fmt.Errorf("%s in %s must use a double-quoted value", key, file)
-			}
-			commandLine = value[1 : len(value)-1]
-			found = true
-		}
-	}
-	if !found {
-		return commandLine, fmt.Errorf("%s not found in %s or %s", key, grubConfig, dropInDir)
-	}
-	return commandLine, nil
-}
-
-func (la *lsmActions) overrideGRUB() error {
-	return nil
-}
-
-func (la *lsmActions) updateGRUB() error {
-	return nil
-}
-
-func (la *lsmActions) restartSystem() error {
-	return nil
 }
