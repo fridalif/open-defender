@@ -30,7 +30,6 @@ struct policy_config {
 };
 
 struct exec_event {
-    __u64 timestamp_ns;
     __u32 tgid;
     __u32 pid;
     __u32 host_uid;
@@ -67,7 +66,7 @@ struct {
 } events SEC(".maps");
 
 SEC("lsm/bprm_check_security")
-int user_command_controller(check_exec, struct linux_binprm *bprm, int prior_ret)
+int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
 {
     if (prior_ret != 0)
         return prior_ret;
@@ -102,7 +101,6 @@ int user_command_controller(check_exec, struct linux_binprm *bprm, int prior_ret
 
     struct exec_event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (evt) {
-        evt->timestamp_ns = bpf_ktime_get_ns();
         __u64 id = bpf_get_current_pid_tgid();
         evt->tgid = id >> 32;
         evt->pid = (__u32)id;
