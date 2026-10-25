@@ -1,3 +1,5 @@
+//go:build Linux
+
 package ebpfmonitors
 
 import (

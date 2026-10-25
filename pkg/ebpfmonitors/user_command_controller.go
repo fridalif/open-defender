@@ -1,8 +1,17 @@
+//go:build Linux
+
 package ebpfmonitors
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"open-defender/pkg/config"
+	usercommandcontrollerpolicy "open-defender/pkg/user-command-controller-policy"
+	"os"
+	"path/filepath"
+	"strconv"
+	"syscall"
 
 	"github.com/cilium/ebpf"
 )
@@ -92,6 +101,71 @@ func NewUserCommandControllerMonitor(ctx context.Context, cancel context.CancelF
 			logFn(message, true)
 		},
 	}
+}
+
+func (uccm *userCommandControllerMonitor) namespaceInode(path string) (uint32, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	linuxStat, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("cannot inspect namespace inode at %s", path)
+	}
+	if linuxStat.Ino > 0xffffffff {
+		return 0, fmt.Errorf("namespace inode out of range at %s", path)
+	}
+	return uint32(linuxStat.Ino), nil
+}
+
+func (uccm *userCommandControllerMonitor) discoverUserRules(uids []uint32) (map[userKey]struct{}, error) {
+	result := make(map[userKey]struct{})
+	if len(uids) == 0 {
+		return result, nil
+	}
+
+	dirs, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[uint32]struct{})
+	var inaccessible int
+	for _, dir := range dirs {
+		if _, err := strconv.Atoi(dir.Name()); err != nil {
+			continue
+		}
+		proc := filepath.Join("/proc", dir.Name())
+		inode, err := uccm.namespaceInode(filepath.Join(proc, "ns/user"))
+		if err != nil {
+			inaccessible++
+			continue
+		}
+		if _, ok := seen[inode]; ok {
+			continue
+		}
+		mapping, err := os.ReadFile(filepath.Join(proc, "uid_map"))
+		if err != nil {
+			inaccessible++
+			continue
+		}
+		seen[inode] = struct{}{}
+		for _, uid := range uids {
+			hostUID, found, err := usercommandcontrollerpolicy.HostUID(uid, string(mapping))
+			if err != nil {
+				return nil, fmt.Errorf("%s uid_map: %w", proc, err)
+			}
+			if found {
+				result[userKey{UserNS: inode, HostUID: hostUID}] = struct{}{}
+			}
+		}
+	}
+	if inaccessible > 0 {
+		log.Printf("WARNING: %d /proc entries could not be read (exit/permission); some rules may lag", inaccessible)
+	}
+	if len(seen) == 0 {
+		return nil, fmt.Errorf("no user namespaces readable via /proc")
+	}
+	return result, nil
 }
 
 func (uccm *userCommandControllerMonitor) Run() error {
