@@ -1,19 +1,30 @@
-//go:build Linux
+//go:build linux
 
 package ebpfmonitors
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
-	"open-defender/pkg/config"
-	usercommandcontrollerpolicy "open-defender/pkg/user-command-controller-policy"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
+	"time"
+
+	"open-defender/pkg/config"
+	bpf "open-defender/pkg/ebpfmonitors/gobpfs"
+	"open-defender/pkg/protocol"
+	policy "open-defender/pkg/user-command-controller-policy"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/ringbuf"
+	"github.com/cilium/ebpf/rlimit"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -output-dir=gobpfs -target bpfel UserCommandController bpf/user_command_controller.bpf.c -- -I./bpf -O2 -Wall -g
@@ -24,150 +35,319 @@ const (
 	blockNegative uint32 = 2
 )
 
-type userCommandControllerConfig struct {
-	Mode           string   `yaml:"mode" json:"mode"`
-	BlockType      string   `yaml:"block_type" json:"block_type"`
-	TargetUsersIDs []string `yaml:"target_users_ids" json:"target_users_ids"`
-	TargetCommands []string `yaml:"target_commands" json:"target_commands"`
+type execEvent struct {
+	TGID, PID, HostUID, UserNS, EffectiveUID, WouldBlock, Blocked uint32
+	Command                                                       [64]byte
 }
 
-type userKey struct {
-	UserNS  uint32
-	HostUID uint32
+type userKey struct{ UserNS, HostUID uint32 }
+
+// A namespace FD prevents its inode from being reused while policy is installed.
+type commandNamespace struct {
+	handle *os.File
+	root   uint32
+	users  []userKey
+}
+
+type commandRuleMap interface {
+	Update(key, value interface{}, flags ebpf.MapUpdateFlags) error
+	Delete(key interface{}) error
 }
 
 type commandKey struct{ Name [64]byte }
-
-type kernelConfig struct {
-	Mode        uint32
-	BlockType   uint32
-	HasUsers    uint32
-	HasCommands uint32
+type kernelConfig struct{ Mode, BlockType, HasUsers, HasCommands uint32 }
+type commandObjects struct {
+	Program    *ebpf.Program `ebpf:"user_command_controller"`
+	Users      *ebpf.Map     `ebpf:"users"`
+	Namespaces *ebpf.Map     `ebpf:"namespaces"`
+	Commands   *ebpf.Map     `ebpf:"commands"`
+	Settings   *ebpf.Map     `ebpf:"settings"`
+	Events     *ebpf.Map     `ebpf:"events"`
 }
 
-type execEvent struct {
-	TGID       uint32
-	PID        uint32
-	HostUID    uint32
-	UserNS     uint32
-	WouldBlock uint32
-	Blocked    uint32
-	Command    [64]byte
-}
-
-type objects struct {
-	CheckExec *ebpf.Program `ebpf:"check_exec"`
-	Users     *ebpf.Map     `ebpf:"users"`
-	Commands  *ebpf.Map     `ebpf:"commands"`
-	Settings  *ebpf.Map     `ebpf:"settings"`
-	Events    *ebpf.Map     `ebpf:"events"`
-}
-
-func (o *objects) Close() {
-	if o.CheckExec != nil {
-		o.CheckExec.Close()
+func (o *commandObjects) Close() {
+	for _, m := range []*ebpf.Map{o.Users, o.Namespaces, o.Commands, o.Settings, o.Events} {
+		if m != nil {
+			_ = m.Close()
+		}
 	}
-	if o.Users != nil {
-		o.Users.Close()
-	}
-	if o.Commands != nil {
-		o.Commands.Close()
-	}
-	if o.Settings != nil {
-		o.Settings.Close()
-	}
-	if o.Events != nil {
-		o.Events.Close()
+	if o.Program != nil {
+		_ = o.Program.Close()
 	}
 }
 
-type UserCommandControllerMonitor interface {
-	Run() error
-}
-
+type UserCommandControllerMonitor interface{ Run() error }
 type userCommandControllerMonitor struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	cfg         config.UserCommandExecutionController
-	logFunction func(message string)
+	ctx    context.Context
+	cfg    config.UserCommandExecutionController
+	report func(protocol.AlertEvent)
 }
 
-func NewUserCommandControllerMonitor(ctx context.Context, cancel context.CancelFunc, cfg config.UserCommandExecutionController, logFn func(message string, isNewBan bool)) UserCommandControllerMonitor {
-	return &userCommandControllerMonitor{
-		ctx:    ctx,
-		cancel: cancel,
-		cfg:    cfg,
-		logFunction: func(message string) {
-			logFn(message, true)
-		},
-	}
+func NewUserCommandControllerMonitor(ctx context.Context, cfg config.UserCommandExecutionController, report func(protocol.AlertEvent)) UserCommandControllerMonitor {
+	return &userCommandControllerMonitor{ctx: ctx, cfg: cfg, report: report}
 }
 
-func (uccm *userCommandControllerMonitor) namespaceInode(path string) (uint32, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-	linuxStat, ok := st.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, fmt.Errorf("cannot inspect namespace inode at %s", path)
-	}
-	if linuxStat.Ino > 0xffffffff {
-		return 0, fmt.Errorf("namespace inode out of range at %s", path)
-	}
-	return uint32(linuxStat.Ino), nil
-}
-
-func (uccm *userCommandControllerMonitor) discoverUserRules(uids []uint32) (map[userKey]struct{}, error) {
-	result := make(map[userKey]struct{})
-	if len(uids) == 0 {
-		return result, nil
-	}
-
+func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*commandNamespace, error) {
 	dirs, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[uint32]struct{})
-	var inaccessible int
+	states := make(map[uint32]*commandNamespace)
 	for _, dir := range dirs {
-		if _, err := strconv.Atoi(dir.Name()); err != nil {
+		if ctx.Err() != nil {
+			closeNamespaces(states)
+			return nil, ctx.Err()
+		}
+		if _, err := strconv.ParseUint(dir.Name(), 10, 32); err != nil {
 			continue
 		}
 		proc := filepath.Join("/proc", dir.Name())
-		inode, err := uccm.namespaceInode(filepath.Join(proc, "ns/user"))
+		// Keep the proc directory open so PID reuse cannot mix two processes.
+		procFD, err := os.Open(proc)
 		if err != nil {
-			inaccessible++
 			continue
 		}
-		if _, ok := seen[inode]; ok {
-			continue
-		}
-		mapping, err := os.ReadFile(filepath.Join(proc, "uid_map"))
+		base := fmt.Sprintf("/proc/self/fd/%d", procFD.Fd())
+		handle, err := os.Open(filepath.Join(base, "ns/user"))
 		if err != nil {
-			inaccessible++
+			_ = procFD.Close()
 			continue
 		}
-		seen[inode] = struct{}{}
+		st, err := handle.Stat()
+		if err != nil {
+			_ = handle.Close()
+			_ = procFD.Close()
+			continue
+		}
+		ino := st.Sys().(*syscall.Stat_t).Ino
+		if ino > 0xffffffff {
+			_ = handle.Close()
+			_ = procFD.Close()
+			continue
+		}
+		ns := uint32(ino)
+		if _, exists := states[ns]; exists {
+			_ = handle.Close()
+			_ = procFD.Close()
+			continue
+		}
+		mapping, err := os.ReadFile(filepath.Join(base, "uid_map"))
+		// Verify that the process did not switch namespaces while reading uid_map.
+		after, statErr := os.Stat(filepath.Join(base, "ns/user"))
+		_ = procFD.Close()
+		if err != nil || statErr != nil || !os.SameFile(st, after) {
+			_ = handle.Close()
+			continue
+		}
+		root, found, err := policy.HostUID(0, string(mapping))
+		// Without a root mapping the namespace remains unrestricted.
+		if err != nil || !found {
+			_ = handle.Close()
+			continue
+		}
+		state := &commandNamespace{handle: handle, root: root}
+		valid := true
 		for _, uid := range uids {
-			hostUID, found, err := usercommandcontrollerpolicy.HostUID(uid, string(mapping))
+			host, found, err := policy.HostUID(uid, string(mapping))
 			if err != nil {
-				return nil, fmt.Errorf("%s uid_map: %w", proc, err)
+				valid = false
+				break
 			}
 			if found {
-				result[userKey{UserNS: inode, HostUID: hostUID}] = struct{}{}
+				state.users = append(state.users, userKey{ns, host})
 			}
 		}
+		if !valid {
+			_ = handle.Close()
+			continue
+		}
+		states[ns] = state
 	}
-	if inaccessible > 0 {
-		log.Printf("WARNING: %d /proc entries could not be read (exit/permission); some rules may lag", inaccessible)
-	}
-	if len(seen) == 0 {
-		return nil, fmt.Errorf("no user namespaces readable via /proc")
-	}
-	return result, nil
+	return states, nil
 }
 
-func (uccm *userCommandControllerMonitor) Run() error {
+func (m *userCommandControllerMonitor) Run() error {
+	if m.cfg.Mode == "" || m.cfg.Mode == "disabled" {
+		return nil
+	}
+	if err := m.cfg.Validate(); err != nil {
+		return err
+	}
+	// uid_map must be read relative to the initial host user namespace.
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("user_command_controller requires host root")
+	}
+	raw, err := os.ReadFile("/proc/self/uid_map")
+	if err != nil {
+		return err
+	}
+	if len(bytes.Fields(raw)) != 3 || string(bytes.Join(bytes.Fields(raw), []byte(" "))) != "0 0 4294967295" {
+		return fmt.Errorf("user_command_controller must run in the initial host user namespace")
+	}
+	uids, _ := policy.ParseUIDs(m.cfg.TargetUsersIDs)
+	commands, _ := policy.NormalizeCommands(m.cfg.TargetCommands)
+	if err := rlimit.RemoveMemlock(); err != nil {
+		return fmt.Errorf("user_command_controller memlock: %w", err)
+	}
+	var o commandObjects
+	defer o.Close()
+	if err := bpf.LoadUserCommandControllerObjects(&o, nil); err != nil {
+		return fmt.Errorf("user_command_controller load: %w", err)
+	}
+	for _, command := range commands {
+		var key commandKey
+		copy(key.Name[:], command)
+		if err := o.Commands.Update(key, uint8(1), ebpf.UpdateAny); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	defer cancel()
+	current := make(map[uint32]*commandNamespace)
+	defer closeNamespaces(current)
+	scan := func() error {
+		desired, err := discoverCommandNamespaces(ctx, uids)
+		if err != nil {
+			return err
+		}
+		defer closeNamespaces(desired)
+		return syncCommandNamespaces(o.Users, o.Namespaces, current, desired)
+	}
+	if err := scan(); err != nil {
+		return fmt.Errorf("user_command_controller namespaces: %w", err)
+	}
+	cfg := kernelConfig{Mode: modeLogger, BlockType: blockPositive}
+	if m.cfg.Mode == "blocker" {
+		cfg.Mode = modeBlocker
+	}
+	if m.cfg.BlockType == "negative" {
+		cfg.BlockType = blockNegative
+	}
+	if len(uids) > 0 {
+		cfg.HasUsers = 1
+	}
+	if len(commands) > 0 {
+		cfg.HasCommands = 1
+	}
+	if err := o.Settings.Update(uint32(0), cfg, ebpf.UpdateAny); err != nil {
+		return err
+	}
+	reader, err := ringbuf.NewReader(o.Events)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	attached, err := link.AttachLSM(link.LSMOptions{Program: o.Program})
+	if err != nil {
+		return fmt.Errorf("user_command_controller attach LSM: %w", err)
+	}
+	defer attached.Close()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	// Join before closing maps/namespace FDs.
+	defer func() { cancel(); wg.Wait() }()
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				_ = attached.Close()
+				_ = reader.Close()
+				return
+			case <-ticker.C:
+				if err := scan(); err != nil {
+					log.Printf("user_command_controller namespace update failed; detaching: %v", err)
+					cancel()
+				}
+			}
+		}
+	}()
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if errors.Is(err, ringbuf.ErrClosed) || ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("user_command_controller read: %w", err)
+		}
+		event, err := decodeCommandEvent(record.RawSample, m.cfg.Mode)
+		if err != nil {
+			log.Printf("user_command_controller: %v", err)
+			continue
+		}
+		if event != nil && m.report != nil {
+			m.report(*event)
+		}
+	}
+}
+
+func closeNamespaces(states map[uint32]*commandNamespace) {
+	for _, state := range states {
+		_ = state.handle.Close()
+	}
+}
+
+// Remove readiness first; publish it last. A failed update never exposes
+// incomplete rules to the enforcing hook. The caller detaches on map errors.
+func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired map[uint32]*commandNamespace) error {
+	for ns, state := range current {
+		if _, exists := desired[ns]; exists {
+			continue
+		}
+		if err := namespaces.Delete(ns); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return err
+		}
+		for _, key := range state.users {
+			if err := users.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+				return err
+			}
+		}
+		_ = state.handle.Close()
+		delete(current, ns)
+	}
+	for ns, state := range desired {
+		if _, exists := current[ns]; exists {
+			continue
+		}
+		for _, key := range state.users {
+			if err := users.Update(key, uint8(1), ebpf.UpdateAny); err != nil {
+				return err
+			}
+		}
+		if err := namespaces.Update(ns, state.root, ebpf.UpdateAny); err != nil {
+			return err
+		}
+		// Transfer ownership; the caller closes any unconsumed FDs.
+		current[ns] = state
+		delete(desired, ns)
+	}
 	return nil
+}
+
+func decodeCommandEvent(sample []byte, mode string) (*protocol.AlertEvent, error) {
+	var evt execEvent
+	if len(sample) != binary.Size(evt) {
+		return nil, fmt.Errorf("invalid exec event size %d", len(sample))
+	}
+	if err := binary.Read(bytes.NewReader(sample), binary.LittleEndian, &evt); err != nil {
+		return nil, err
+	}
+	if evt.HostUID == 0 || evt.EffectiveUID == 0 || evt.WouldBlock == 0 {
+		return nil, nil
+	}
+	result, severity := "logged", protocol.SeverityCritical
+	if mode == "blocker" {
+		if evt.Blocked == 0 {
+			return nil, nil
+		}
+		result, severity = "blocked", protocol.SeverityHigh
+	}
+	command := string(bytes.TrimRight(evt.Command[:], "\x00"))
+	return &protocol.AlertEvent{
+		Source: protocol.SourceUserCommandController, Severity: severity,
+		Message: fmt.Sprintf("user_command_controller -> %s command %q uid=%d euid=%d userns=%d pid=%d tid=%d", result, command, evt.HostUID, evt.EffectiveUID, evt.UserNS, evt.TGID, evt.PID),
+		Details: map[string]any{"result": result, "command": command, "uid": evt.HostUID, "effective_uid": evt.EffectiveUID, "user_namespace": evt.UserNS, "pid": evt.TGID, "tid": evt.PID, "mode": mode},
+	}, nil
 }

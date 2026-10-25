@@ -106,6 +106,13 @@ type Config struct {
 
 const ipPattern = `?P<ip>(?:\d{1,3}\.){3}\d{1,3}`
 
+func defaultUserCommandExecutionController() UserCommandExecutionController {
+	return UserCommandExecutionController{
+		Mode: "disabled", BlockType: "positive",
+		TargetUsersIDs: []string{}, TargetCommands: []string{},
+	}
+}
+
 func New() *Config {
 	config := &Config{
 		BlockedIPsDatabase: "/var/open-defender/blocked.db",
@@ -186,6 +193,7 @@ func New() *Config {
 			OutputTopSnapshotDir: "/var/log/open-defender/",
 		},
 		EbpfMonitors: EbpfConfig{
+			UserCommandController: defaultUserCommandExecutionController(),
 			NetworkAntirecon: EbpfNetworkAntireconConfig{
 				Mode:           "disabled",
 				PortsCount:     10,
@@ -347,6 +355,7 @@ func (c *Config) LoadConfigReadOnly(path string) error {
 	}
 
 	c.FirewallChains = nil
+	c.EbpfMonitors.UserCommandController = defaultUserCommandExecutionController()
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfigReadOnly() -> %w: %v", ErrParseConfig, err)
 	}
@@ -375,10 +384,8 @@ func (c *Config) LoadConfig(path string) error {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrReadConfig, err)
 	}
 
-	// yaml.Unmarshal preserves fields that are not present in the document.
-	// Clear this migration field so a legacy config gets chains for the engine
-	// it actually declares, rather than New()'s iptables defaults.
 	c.FirewallChains = nil
+	c.EbpfMonitors.UserCommandController = defaultUserCommandExecutionController()
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return fmt.Errorf("config.LoadConfig() -> %w: %v", ErrParseConfig, err)
 	}

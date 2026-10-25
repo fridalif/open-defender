@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	policy "open-defender/pkg/user-command-controller-policy"
 )
 
 const (
@@ -55,6 +57,9 @@ func (c *Config) Validate() []error {
 
 	problems = append(problems, c.validateResource("resource_monitor", &c.ResourceMonitor)...)
 	problems = append(problems, c.validateNetworkAntirecon("ebpf_monitors.network_antirecon", &c.EbpfMonitors.NetworkAntirecon)...)
+	if err := c.EbpfMonitors.UserCommandController.Validate(); err != nil {
+		problems = append(problems, err)
+	}
 
 	return problems
 }
@@ -198,4 +203,27 @@ func (c *Config) validateNetworkAntirecon(name string, nm *EbpfNetworkAntireconC
 	}
 
 	return problems
+}
+
+func (c UserCommandExecutionController) Validate() error {
+	if c.Mode == "" || c.Mode == "disabled" {
+		return nil
+	}
+	if c.Mode != "logger" && c.Mode != "blocker" {
+		return fmt.Errorf("user_command_controller: invalid mode %q", c.Mode)
+	}
+	if c.BlockType != "positive" && c.BlockType != "negative" {
+		return fmt.Errorf("user_command_controller: invalid block_type %q", c.BlockType)
+	}
+	if _, err := policy.ParseUIDs(c.TargetUsersIDs); err != nil {
+		return fmt.Errorf("user_command_controller: %w", err)
+	}
+	commands, err := policy.NormalizeCommands(c.TargetCommands)
+	if err != nil {
+		return fmt.Errorf("user_command_controller: %w", err)
+	}
+	if len(commands) > 4096 {
+		return fmt.Errorf("user_command_controller: too many commands (max 4096)")
+	}
+	return nil
 }

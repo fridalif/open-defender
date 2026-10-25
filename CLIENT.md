@@ -174,11 +174,15 @@ is no acknowledgement and no resend.
 | `web_recon_monitor` | same, requests for paths that are not there | same |
 | `database_monitor` | same, failed database logins | same |
 | `network_antirecon` | eBPF sees a port scan or a hit on a blacklisted port | none |
+| `user_command_controller` | a policy-selected execution attempt in logger mode or a denied attempt in blocker mode | `severity` (`critical` or `high`), command execution details below |
 | `resource_monitor` | cpu / ram / traffic / disk crossed a limit | `severity` (`warning` or `alert`), `details.metric`, `details.value`, `details.unit`, `details.limit` |
 | `ip_ban` | an ip was actually banned by the firewall | none |
 
-`severity` is only ever set for `resource_monitor`. Severity levels for the
-dashboard are assigned by the connector, not by the agent.
+`severity` is set for `resource_monitor` (`warning` / `alert`) and `user_command_controller` (`critical` / `high`). Numeric dashboard levels are assigned by the connector.
+
+#### Command execution events
+
+For `source=user_command_controller`, `details` contains `result` (`logged` / `blocked`), `command` (basename), `uid` and `effective_uid` (host UIDs), `user_namespace`, `pid` (process ID), `tid` (thread ID), and `mode` (`logger` / `blocker`). `logged` is an execution attempt, not a successful-execution confirmation. The connector maps `logged` to **Critical (4)** and `blocked` to **High (3)** using `details.result`, independently of later configuration changes. Root, unknown namespaces, and attempts not selected by policy produce no events.
 
 ---
 

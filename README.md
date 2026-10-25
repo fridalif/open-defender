@@ -139,6 +139,64 @@ put back should the new one fail to start.
 sudo open-defender -r
 ```
 
+## Command execution control
+
+`ebpf_monitors.user_command_controller` checks execution attempts through BPF LSM (`bprm_check_security`). It requires Linux with BTF and active BPF LSM, and the agent must run as root in the initial host user namespace. Controller startup or update errors are logged and detach the controller; other monitors continue running.
+
+```yaml
+ebpf_monitors:
+  user_command_controller:
+    mode: logger
+    block_type: positive
+    target_users_ids: ["1000"]
+    target_commands: ["curl", "wget"]
+```
+
+- `mode`: `disabled`, `logger`, or `blocker`. Omitting the section disables the controller, including on configuration reload.
+- User IDs refer to the process user namespace. Commands match executable basenames, up to 63 bytes; configured paths are reduced to basenames. Shell builtins without a separate exec are not monitored.
+- When both lists are set, both the user and command must match. An empty list imposes no condition on that criterion; two empty lists match nothing.
+- `positive` selects list matches; `negative` selects everything except those matches. With two empty lists, `negative` selects all attempts except the unconditional exclusions below.
+- `logger` permits selected attempts and reports **Critical (4)** events. These are execution attempts, without confirmation of successful execution. `blocker` denies selected attempts with `EPERM` and reports **High (3)** events. Other attempts are not reported.
+
+**Root is always excluded and never reported:** real or effective UID 0 on the host or inside a container user namespace bypasses the policy regardless of configuration. Listing UID 0 does not override this exclusion.
+
+Unknown user namespaces permit all attempts without events. Discovery runs before attachment and then once per minute, with no overlapping scans. A namespace becomes active only after its rules and root UID mapping are loaded; if the root mapping cannot be determined, it remains unrestricted. Namespace descriptors are held while their rules are installed to prevent inode reuse. Containers sharing the host user namespace use its existing policy immediately.
+
+On a test Linux host with BPF LSM and user namespace support, check unknown namespaces, blocking, logger events, and container root mapped to a nonzero host UID:
+
+```sh
+sudo go test -tags integration ./pkg/ebpfmonitors -run '^TestCommandControllerLSM
+
+The messages the agent exchanges with the exporter endpoint over WebSocket, the envelope format,
+the encryption and every operation are documented in [CLIENT.md](./CLIENT.md).
+
+## Building
+
+Requires Go 1.25+ and a C compiler (`gcc`), since the SQLite driver is a cgo package.
+
+Build the binary into `build/open-defender`:
+
+```sh
+make build
+```
+
+### Tests
+
+```sh
+make test          # run all tests
+make test-verbose  # same, with per-test output
+make test-race     # run tests under the race detector
+make cover         # run tests and print a per-function coverage report
+make cover-html    # same, then open the coverage report in a browser
+make vet           # run go vet
+make check         # go vet + tests
+make clean         # remove build artifacts and drop the test cache
+```
+ -v
+```
+
+The integration tests activate policy only for their private user namespaces. Compilation alone does not verify kernel loading or LSM behavior.
+
 ## Agent protocol
 
 The messages the agent exchanges with the exporter endpoint over WebSocket, the envelope format,

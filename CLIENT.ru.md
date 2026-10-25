@@ -159,10 +159,15 @@
 | `web_recon_monitor` | то же для запросов несуществующих путей | то же |
 | `database_monitor` | то же для неудачных входов в базу данных | то же |
 | `network_antirecon` | eBPF обнаруживает сканирование портов или обращение к порту из чёрного списка | нет |
+| `user_command_controller` | выбранная политикой попытка запуска в logger или блокировка в blocker | `severity` (`critical` или `high`), данные запуска описаны ниже |
 | `resource_monitor` | CPU / RAM / трафик / диск превысили предел | `severity` (`warning` или `alert`), `details.metric`, `details.value`, `details.unit`, `details.limit` |
 | `ip_ban` | IP действительно заблокирован межсетевым экраном | нет |
 
-`severity` устанавливается только для `resource_monitor`. Уровни важности для панели назначаются коннектором, а не агентом.
+`severity` устанавливается для `resource_monitor` (`warning` / `alert`) и `user_command_controller` (`critical` / `high`). Числовые уровни критичности для панели назначаются коннектором.
+
+#### События запуска команд
+
+Для `source=user_command_controller` в `details` передаются `result` (`logged` / `blocked`), `command` (basename), `uid` и `effective_uid` (UID на хосте), `user_namespace`, `pid` (ID процесса), `tid` (ID потока), `mode` (`logger` / `blocker`). `logged` означает попытку запуска, без подтверждения успешного исполнения. Коннектор назначает **Критичный (4)** для `logged` и **Высокий (3)** для `blocked` по `details.result`, независимо от последующих изменений конфигурации. Root, неизвестные namespaces и невыбранные политикой попытки событий не создают.
 
 ---
 

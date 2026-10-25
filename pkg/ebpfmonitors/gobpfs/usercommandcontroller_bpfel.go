@@ -38,6 +38,7 @@ type UserCommandControllerUserKey struct {
 const (
 	UserCommandControllerMapCommands               = "commands"
 	UserCommandControllerMapEvents                 = "events"
+	UserCommandControllerMapNamespaces             = "namespaces"
 	UserCommandControllerMapSettings               = "settings"
 	UserCommandControllerMapUsers                  = "users"
 	UserCommandControllerProgUserCommandController = "user_command_controller"
@@ -92,10 +93,11 @@ type UserCommandControllerProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type UserCommandControllerMapSpecs struct {
-	Commands *ebpf.MapSpec `ebpf:"commands"`
-	Events   *ebpf.MapSpec `ebpf:"events"`
-	Settings *ebpf.MapSpec `ebpf:"settings"`
-	Users    *ebpf.MapSpec `ebpf:"users"`
+	Commands   *ebpf.MapSpec `ebpf:"commands"`
+	Events     *ebpf.MapSpec `ebpf:"events"`
+	Namespaces *ebpf.MapSpec `ebpf:"namespaces"`
+	Settings   *ebpf.MapSpec `ebpf:"settings"`
+	Users      *ebpf.MapSpec `ebpf:"users"`
 }
 
 // UserCommandControllerVariableSpecs contains global variables before they are loaded into the kernel.
@@ -124,16 +126,18 @@ func (o *UserCommandControllerObjects) Close() error {
 //
 // It can be passed to LoadUserCommandControllerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type UserCommandControllerMaps struct {
-	Commands *ebpf.Map `ebpf:"commands"`
-	Events   *ebpf.Map `ebpf:"events"`
-	Settings *ebpf.Map `ebpf:"settings"`
-	Users    *ebpf.Map `ebpf:"users"`
+	Commands   *ebpf.Map `ebpf:"commands"`
+	Events     *ebpf.Map `ebpf:"events"`
+	Namespaces *ebpf.Map `ebpf:"namespaces"`
+	Settings   *ebpf.Map `ebpf:"settings"`
+	Users      *ebpf.Map `ebpf:"users"`
 }
 
 func (m *UserCommandControllerMaps) Close() error {
 	return _UserCommandControllerClose(
 		m.Commands,
 		m.Events,
+		m.Namespaces,
 		m.Settings,
 		m.Users,
 	)
