@@ -29,6 +29,11 @@ struct policy_config {
     __u32 has_commands;
 };
 
+struct namespace_policy {
+    __u32 root_uid;
+    __u64 generation;
+};
+
 struct exec_event {
     __u32 tgid;
     __u32 pid;
@@ -37,6 +42,7 @@ struct exec_event {
     __u32 effective_uid;
     __u32 would_block;
     __u32 blocked;
+    __u32 command_truncated;
     char command[COMMAND_SIZE];
 };
 
@@ -51,7 +57,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 131072);
     __type(key, __u32);
-    __type(value, __u32);
+    __type(value, struct namespace_policy);
 } namespaces SEC(".maps");
 
 struct {
@@ -92,9 +98,10 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
     if (uk.host_uid == 0 || effective_uid == 0)
         return 0;
     uk.userns_inum = BPF_CORE_READ(task, cred, user_ns, ns.inum);
-    const __u32 *root_uid = bpf_map_lookup_elem(&namespaces, &uk.userns_inum);
-    if (!root_uid || uk.host_uid == *root_uid || effective_uid == *root_uid)
+    const struct namespace_policy *ns = bpf_map_lookup_elem(&namespaces, &uk.userns_inum);
+    if (!ns || uk.host_uid == ns->root_uid || effective_uid == ns->root_uid)
         return 0;
+    __u64 generation = ns->generation;
 
     struct command_key ck = {};
     struct file *file = BPF_CORE_READ(bprm, file);
@@ -108,11 +115,12 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
         return 0;
     char final_byte = 0;
     if (name_len == COMMAND_SIZE &&
-        (bpf_probe_read_kernel(&final_byte, sizeof(final_byte), name + COMMAND_SIZE - 1) < 0 || final_byte != 0))
+        bpf_probe_read_kernel(&final_byte, sizeof(final_byte), name + COMMAND_SIZE - 1) < 0)
         return 0;
+    bool command_truncated = name_len == COMMAND_SIZE && final_byte != 0;
 
     bool has_user = cfg->has_users && bpf_map_lookup_elem(&users, &uk);
-    bool has_command = cfg->has_commands && bpf_map_lookup_elem(&commands, &ck);
+    bool has_command = !command_truncated && cfg->has_commands && bpf_map_lookup_elem(&commands, &ck);
 
     bool selected = (cfg->has_users || cfg->has_commands) &&
                     (!cfg->has_users || has_user) &&
@@ -120,6 +128,12 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
     bool would_block = cfg->block_type == BLOCK_POSITIVE ? selected : !selected;
     bool blocked = cfg->mode == MODE_BLOCKER && would_block;
     if (!would_block)
+        return 0;
+
+    // An in-flight hook may have observed readiness before users were removed.
+    // Only enforce a decision made entirely within the same published policy.
+    ns = bpf_map_lookup_elem(&namespaces, &uk.userns_inum);
+    if (!ns || ns->generation != generation)
         return 0;
 
     struct exec_event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
@@ -132,6 +146,7 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
         evt->effective_uid = effective_uid;
         evt->would_block = would_block;
         evt->blocked = blocked;
+        evt->command_truncated = command_truncated;
         __builtin_memcpy(evt->command, ck.name, sizeof(evt->command));
         bpf_ringbuf_submit(evt, 0);
     }

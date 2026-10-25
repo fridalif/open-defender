@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -31,14 +33,15 @@ func TestCommandControllerLSM(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name                       string
-		mode                       uint32
-		known, root, denied, event bool
+		name                                    string
+		mode                                    uint32
+		known, root, denied, event, longCommand bool
 	}{
-		{"unknown negative allows", modeBlocker, false, false, false, false},
-		{"known negative blocks", modeBlocker, true, false, true, true},
-		{"logger records attempt", modeLogger, true, false, false, true},
-		{"container root negative allows", modeBlocker, true, true, false, false},
+		{"unknown negative allows", modeBlocker, false, false, false, false, false},
+		{"known negative blocks", modeBlocker, true, false, true, true, false},
+		{"logger records attempt", modeLogger, true, false, false, true, false},
+		{"container root negative allows", modeBlocker, true, true, false, false, false},
+		{"long basename cannot bypass UID block", modeBlocker, true, false, true, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var o commandObjects
@@ -46,7 +49,29 @@ func TestCommandControllerLSM(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer o.Close()
-			if err := o.Settings.Update(uint32(0), kernelConfig{Mode: tc.mode, BlockType: blockNegative}, ebpf.UpdateAny); err != nil {
+			settings := kernelConfig{Mode: tc.mode, BlockType: blockNegative}
+			executablePath := "/bin/true"
+			if tc.longCommand {
+				settings.BlockType = blockPositive
+				settings.HasUsers = 1
+				dir, err := os.MkdirTemp("/tmp", "command-controller-test-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.RemoveAll(dir) })
+				if err := os.Chmod(dir, 0755); err != nil {
+					t.Fatal(err)
+				}
+				executablePath = filepath.Join(dir, strings.Repeat("x", 64))
+				executableBytes, err := os.ReadFile("/bin/true")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(executablePath, executableBytes, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := o.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 				t.Fatal(err)
 			}
 			reader, err := ringbuf.NewReader(o.Events)
@@ -59,7 +84,7 @@ func TestCommandControllerLSM(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer attached.Close()
-			cmd := exec.Command("/bin/sh", "-c", "echo ready; read proceed; exec /bin/true")
+			cmd := exec.Command("/bin/sh", "-c", "echo ready; read proceed; exec \"$1\"", "controller-test", executablePath)
 			uid := uint32(1)
 			if tc.root {
 				uid = 0
@@ -113,8 +138,13 @@ func TestCommandControllerLSM(t *testing.T) {
 				t.Fatal(err)
 			}
 			ns := uint32(st.Sys().(*syscall.Stat_t).Ino)
+			if tc.longCommand {
+				if err := o.Users.Update(userKey{ns, 65533}, uint8(1), ebpf.UpdateAny); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.known {
-				if err := o.Namespaces.Update(ns, uint32(65534), ebpf.UpdateAny); err != nil {
+				if err := o.Namespaces.Update(ns, namespacePolicy{RootUID: 65534, Generation: 1}, ebpf.UpdateAny); err != nil {
 					t.Fatal(err)
 				}
 			}

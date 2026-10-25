@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,9 +37,17 @@ const (
 )
 
 type execEvent struct {
-	TGID, PID, HostUID, UserNS, EffectiveUID, WouldBlock, Blocked uint32
-	Command                                                       [64]byte
+	TGID, PID, HostUID, UserNS, EffectiveUID, WouldBlock, Blocked, CommandTruncated uint32
+	Command                                                                         [64]byte
 }
+
+type namespacePolicy struct {
+	RootUID    uint32
+	_          uint32
+	Generation uint64
+}
+
+var commandNamespaceGeneration atomic.Uint64
 
 type userKey struct{ UserNS, HostUID uint32 }
 
@@ -316,7 +325,11 @@ func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired ma
 				return err
 			}
 		}
-		if err := namespaces.Update(ns, state.root, ebpf.UpdateAny); err != nil {
+		generation := commandNamespaceGeneration.Add(1)
+		if generation == 0 {
+			return fmt.Errorf("namespace generation exhausted")
+		}
+		if err := namespaces.Update(ns, namespacePolicy{RootUID: state.root, Generation: generation}, ebpf.UpdateAny); err != nil {
 			return err
 		}
 		// Transfer ownership; the caller closes any unconsumed FDs.
@@ -345,6 +358,9 @@ func decodeCommandEvent(sample []byte, mode string) (*protocol.AlertEvent, error
 		result, severity = "blocked", protocol.SeverityHigh
 	}
 	command := string(bytes.TrimRight(evt.Command[:], "\x00"))
+	if evt.CommandTruncated != 0 {
+		command += "..."
+	}
 	return &protocol.AlertEvent{
 		Source: protocol.SourceUserCommandController, Severity: severity,
 		Message: fmt.Sprintf("user_command_controller -> %s command %q uid=%d euid=%d userns=%d pid=%d tid=%d", result, command, evt.HostUID, evt.EffectiveUID, evt.UserNS, evt.TGID, evt.PID),

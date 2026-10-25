@@ -167,7 +167,7 @@
 
 #### 命令执行事件
 
-对于 `source=user_command_controller`，`details` 包含 `result`（`logged` / `blocked`）、`command`（basename）、`uid` 和 `effective_uid`（宿主机 UID）、`user_namespace`、`pid`（进程 ID）、`tid`（线程 ID）和 `mode`（`logger` / `blocker`）。`logged` 表示执行尝试，不确认执行成功。连接器根据 `details.result` 将 `logged` 映射为 **严重（4）**，将 `blocked` 映射为 **高（3）**，不依赖之后的配置变化。Root、未知命名空间以及未被策略选中的尝试不产生事件。
+对于 `source=user_command_controller`，`details` 包含 `result`（`logged` / `blocked`）、`command`（basename；长文件名会被截断并添加 `...` 后缀）、`uid` 和 `effective_uid`（宿主机 UID）、`user_namespace`、`pid`（进程 ID）、`tid`（线程 ID）和 `mode`（`logger` / `blocker`）。`logged` 表示执行尝试，不确认执行成功。连接器根据 `details.result` 将 `logged` 映射为 **严重（4）**，将 `blocked` 映射为 **高（3）**，不依赖之后的配置变化。Root、未知命名空间以及未被策略选中的尝试不产生事件。
 
 ---
 

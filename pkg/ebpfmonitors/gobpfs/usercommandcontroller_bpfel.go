@@ -18,6 +18,13 @@ type UserCommandControllerCommandKey struct {
 	Name [64]int8
 }
 
+type UserCommandControllerNamespacePolicy struct {
+	_          structs.HostLayout
+	RootUid    uint32
+	_          [4]byte
+	Generation uint64
+}
+
 type UserCommandControllerPolicyConfig struct {
 	_           structs.HostLayout
 	Mode        uint32

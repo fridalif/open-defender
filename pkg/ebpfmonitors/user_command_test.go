@@ -49,7 +49,7 @@ func TestCommandEventExport(t *testing.T) {
 			}
 		})
 	}
-	for _, size := range []int{0, 91, 93, 100} {
+	for _, size := range []int{0, 92, 95, 97, 100} {
 		if _, err := decodeCommandEvent(make([]byte, size), "logger"); err == nil {
 			t.Fatalf("accepted size %d", size)
 		}
@@ -126,5 +126,56 @@ func TestNamespaceRemovalFailurePreservesPin(t *testing.T) {
 	}
 	if _, err := current[99].handle.Stat(); err != nil {
 		t.Fatalf("pin closed: %v", err)
+	}
+}
+
+type namespacePolicyMapFake struct {
+	values []namespacePolicy
+}
+
+func (m *namespacePolicyMapFake) Update(key, value interface{}, flags ebpf.MapUpdateFlags) error {
+	m.values = append(m.values, value.(namespacePolicy))
+	return nil
+}
+func (m *namespacePolicyMapFake) Delete(key interface{}) error { return nil }
+
+func TestRepublishedNamespaceHasNewGeneration(t *testing.T) {
+	var ops []string
+	users := commandMapFake{"users", &ops, false}
+	namespaces := &namespacePolicyMapFake{}
+	current := map[uint32]*commandNamespace{}
+	if err := syncCommandNamespaces(users, namespaces, current, map[uint32]*commandNamespace{99: namespaceForTest(t)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncCommandNamespaces(users, namespaces, current, map[uint32]*commandNamespace{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncCommandNamespaces(users, namespaces, current, map[uint32]*commandNamespace{99: namespaceForTest(t)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(namespaces.values) != 2 || namespaces.values[0].Generation == 0 || namespaces.values[0].Generation == namespaces.values[1].Generation {
+		t.Fatalf("unsafe namespace generations: %+v", namespaces.values)
+	}
+	if namespaces.values[0].RootUID != 100000 || namespaces.values[1].RootUID != 100000 {
+		t.Fatal("lost root exemption")
+	}
+	if binary.Size(namespacePolicy{}) != 16 {
+		t.Fatal("namespace policy ABI mismatch")
+	}
+}
+
+func TestTruncatedCommandEvent(t *testing.T) {
+	evt := execEvent{HostUID: 1000, EffectiveUID: 1000, WouldBlock: 1, Blocked: 1, CommandTruncated: 1}
+	copy(evt.Command[:], "long-command-prefix")
+	var raw bytes.Buffer
+	if err := binary.Write(&raw, binary.LittleEndian, evt); err != nil {
+		t.Fatal(err)
+	}
+	event, err := decodeCommandEvent(raw.Bytes(), "blocker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event == nil || event.Details["command"] != "long-command-prefix..." || event.Severity != protocol.SeverityHigh {
+		t.Fatalf("incorrect truncated event: %+v", event)
 	}
 }

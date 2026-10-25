@@ -182,7 +182,7 @@ is no acknowledgement and no resend.
 
 #### Command execution events
 
-For `source=user_command_controller`, `details` contains `result` (`logged` / `blocked`), `command` (basename), `uid` and `effective_uid` (host UIDs), `user_namespace`, `pid` (process ID), `tid` (thread ID), and `mode` (`logger` / `blocker`). `logged` is an execution attempt, not a successful-execution confirmation. The connector maps `logged` to **Critical (4)** and `blocked` to **High (3)** using `details.result`, independently of later configuration changes. Root, unknown namespaces, and attempts not selected by policy produce no events.
+For `source=user_command_controller`, `details` contains `result` (`logged` / `blocked`), `command` (basename; long names are shortened with a `...` suffix), `uid` and `effective_uid` (host UIDs), `user_namespace`, `pid` (process ID), `tid` (thread ID), and `mode` (`logger` / `blocker`). `logged` is an execution attempt, not a successful-execution confirmation. The connector maps `logged` to **Critical (4)** and `blocked` to **High (3)** using `details.result`, independently of later configuration changes. Root, unknown namespaces, and attempts not selected by policy produce no events.
 
 ---
 

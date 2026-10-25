@@ -167,7 +167,7 @@
 
 #### События запуска команд
 
-Для `source=user_command_controller` в `details` передаются `result` (`logged` / `blocked`), `command` (basename), `uid` и `effective_uid` (UID на хосте), `user_namespace`, `pid` (ID процесса), `tid` (ID потока), `mode` (`logger` / `blocker`). `logged` означает попытку запуска, без подтверждения успешного исполнения. Коннектор назначает **Критичный (4)** для `logged` и **Высокий (3)** для `blocked` по `details.result`, независимо от последующих изменений конфигурации. Root, неизвестные namespaces и невыбранные политикой попытки событий не создают.
+Для `source=user_command_controller` в `details` передаются `result` (`logged` / `blocked`), `command` (basename; длинные имена сокращаются с суффиксом `...`), `uid` и `effective_uid` (UID на хосте), `user_namespace`, `pid` (ID процесса), `tid` (ID потока), `mode` (`logger` / `blocker`). `logged` означает попытку запуска, без подтверждения успешного исполнения. Коннектор назначает **Критичный (4)** для `logged` и **Высокий (3)** для `blocked` по `details.result`, независимо от последующих изменений конфигурации. Root, неизвестные namespaces и невыбранные политикой попытки событий не создают.
 
 ---
 
