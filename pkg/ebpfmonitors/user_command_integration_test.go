@@ -23,8 +23,8 @@ import (
 	bpf "open-defender/pkg/ebpfmonitors/gobpfs"
 )
 
-// Policy is published only for each test child's private user namespace.
-// No host namespace is enabled, including in negative mode.
+// Enforcement is gated by each test child's private mount namespace, so tests
+// sharing the host user namespace cannot affect other host processes.
 func TestCommandControllerLSM(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("requires host root, BPF LSM and user namespaces")
@@ -36,12 +36,16 @@ func TestCommandControllerLSM(t *testing.T) {
 		name                                    string
 		mode                                    uint32
 		known, root, denied, event, longCommand bool
+		noRoot, sharedUser, mountPending        bool
 	}{
-		{"unknown negative allows", modeBlocker, false, false, false, false, false},
-		{"known negative blocks", modeBlocker, true, false, true, true, false},
-		{"logger records attempt", modeLogger, true, false, false, true, false},
-		{"container root negative allows", modeBlocker, true, true, false, false, false},
-		{"long basename cannot bypass UID block", modeBlocker, true, false, true, true, true},
+		{name: "unknown negative allows", mode: modeBlocker},
+		{name: "known negative blocks", mode: modeBlocker, known: true, denied: true, event: true},
+		{name: "logger records attempt", mode: modeLogger, known: true, event: true},
+		{name: "container root negative allows", mode: modeBlocker, known: true, root: true},
+		{name: "long basename cannot bypass UID block", mode: modeBlocker, known: true, denied: true, event: true, longCommand: true},
+		{name: "namespace without root still blocks", mode: modeBlocker, known: true, denied: true, event: true, noRoot: true},
+		{name: "new container with shared userns allows setup", mode: modeBlocker, known: true, sharedUser: true, mountPending: true},
+		{name: "ready container with shared userns blocks", mode: modeBlocker, known: true, sharedUser: true, denied: true, event: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var o commandObjects
@@ -90,11 +94,18 @@ func TestCommandControllerLSM(t *testing.T) {
 				uid = 0
 			}
 			cmd.SysProcAttr = &syscall.SysProcAttr{
-				Cloneflags:                 syscall.CLONE_NEWUSER,
+				Cloneflags:                 syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
 				UidMappings:                []syscall.SysProcIDMap{{ContainerID: 0, HostID: 65534, Size: 1}, {ContainerID: 1, HostID: 65533, Size: 1}},
 				GidMappings:                []syscall.SysProcIDMap{{ContainerID: 0, HostID: 65534, Size: 1}, {ContainerID: 1, HostID: 65533, Size: 1}},
 				GidMappingsEnableSetgroups: false,
 				Credential:                 &syscall.Credential{Uid: uid, Gid: uid, NoSetGroups: true},
+			}
+			if tc.noRoot {
+				cmd.SysProcAttr.UidMappings = cmd.SysProcAttr.UidMappings[1:]
+				cmd.SysProcAttr.GidMappings = cmd.SysProcAttr.GidMappings[1:]
+			}
+			if tc.sharedUser {
+				cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNS, Credential: &syscall.Credential{Uid: 65533, Gid: 65533, NoSetGroups: true}}
 			}
 			stdin, err := cmd.StdinPipe()
 			if err != nil {
@@ -143,8 +154,29 @@ func TestCommandControllerLSM(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			mountPin, err := os.Open(fmt.Sprintf("/proc/%d/ns/mnt", cmd.Process.Pid))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer mountPin.Close()
+			mountStat, err := mountPin.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.mountPending {
+				if err := o.Mounts.Update(uint32(mountStat.Sys().(*syscall.Stat_t).Ino), namespacePolicy{Generation: 1}, ebpf.UpdateAny); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.known {
-				if err := o.Namespaces.Update(ns, namespacePolicy{RootUID: 65534, Generation: 1}, ebpf.UpdateAny); err != nil {
+				rootUID := uint32(65534)
+				if tc.noRoot {
+					rootUID = unmappedRootUID
+				}
+				if tc.sharedUser {
+					rootUID = 0
+				}
+				if err := o.Namespaces.Update(ns, namespacePolicy{RootUID: rootUID, Generation: 1}, ebpf.UpdateAny); err != nil {
 					t.Fatal(err)
 				}
 			}

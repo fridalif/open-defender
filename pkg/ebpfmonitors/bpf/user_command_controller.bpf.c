@@ -60,6 +60,14 @@ struct {
     __type(value, struct namespace_policy);
 } namespaces SEC(".maps");
 
+// A separate gate is necessary for containers sharing the host user namespace.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 131072);
+    __type(key, __u32);
+    __type(value, struct namespace_policy);
+} mounts SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 4096);
@@ -102,6 +110,11 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
     if (!ns || uk.host_uid == ns->root_uid || effective_uid == ns->root_uid)
         return 0;
     __u64 generation = ns->generation;
+    __u32 mountns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    const struct namespace_policy *mount = bpf_map_lookup_elem(&mounts, &mountns);
+    if (!mount)
+        return 0;
+    __u64 mount_generation = mount->generation;
 
     struct command_key ck = {};
     struct file *file = BPF_CORE_READ(bprm, file);
@@ -134,6 +147,9 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
     // Only enforce a decision made entirely within the same published policy.
     ns = bpf_map_lookup_elem(&namespaces, &uk.userns_inum);
     if (!ns || ns->generation != generation)
+        return 0;
+    mount = bpf_map_lookup_elem(&mounts, &mountns);
+    if (!mount || mount->generation != mount_generation)
         return 0;
 
     struct exec_event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);

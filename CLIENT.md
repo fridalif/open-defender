@@ -21,10 +21,6 @@ AES-256-GCM for the body, frame layout `[RSA(aes_key)][12-byte nonce][ciphertext
 Because the key pair is per session, a reconnect makes every message from the
 previous session undecryptable; there is no long-lived agent secret on disk.
 
-> The agent is **not authenticated**: `user_id` and `config_id` are identifiers,
-> not secrets. Anyone holding a copy of `config.yaml` can impersonate this agent.
-> See TODO.md, "Аутентификация агента".
-
 ---
 
 ## 2. Message exchange

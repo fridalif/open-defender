@@ -17,7 +17,7 @@ func TestEmbeddedCommandObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string][2]uint32{"users": {8, 1}, "namespaces": {4, 16}, "commands": {64, 1}, "settings": {4, 16}} {
+	for name, want := range map[string][2]uint32{"users": {8, 1}, "namespaces": {4, 16}, "mounts": {4, 16}, "commands": {64, 1}, "settings": {4, 16}} {
 		m := spec.Maps[name]
 		if m == nil || m.KeySize != want[0] || m.ValueSize != want[1] {
 			t.Fatalf("bad map %s: %+v", name, m)

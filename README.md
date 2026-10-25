@@ -160,7 +160,7 @@ ebpf_monitors:
 
 **Root is always excluded and never reported:** real or effective UID 0 on the host or inside a container user namespace bypasses the policy regardless of configuration. Listing UID 0 does not override this exclusion.
 
-Unknown user namespaces permit all attempts without events. Discovery runs before attachment and then once per minute, with no overlapping scans. A namespace becomes active only after its rules and root UID mapping are loaded; if the root mapping cannot be determined, it remains unrestricted. Namespace descriptors are held while their rules are installed to prevent inode reuse. Containers sharing the host user namespace use its existing policy immediately.
+Unknown user or mount namespaces permit all attempts without events. Discovery runs before attachment and then every 150 seconds, without overlapping scans. Each newly discovered namespace receives another 150 seconds for setup before policy is enabled, including namespaces present at agent startup. Each Docker container has a separate mount namespace, so it receives its own grace period even when sharing the host user namespace. Enforcement starts only when both namespaces are ready. Namespace descriptors remain pinned during the grace period and enforcement to prevent inode reuse. A nonempty UID map without UID 0 still receives policy for its other users; an uninitialized empty map remains unrestricted until discovery reads its final mapping. Root is always excluded.
 
 On a test Linux host with BPF LSM and user namespace support, check unknown namespaces, blocking, logger events, and container root mapped to a nonzero host UID:
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"open-defender/pkg/protocol"
@@ -83,7 +84,7 @@ func namespaceForTest(t *testing.T) *commandNamespace {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	return &commandNamespace{handle: f, root: 100000, users: []userKey{{99, 101000}}}
+	return &commandNamespace{handle: f, root: 100000, users: []userKey{{99, 101000}}, readyAt: time.Now().Add(-time.Second)}
 }
 func TestNamespacePublicationOrder(t *testing.T) {
 	var ops []string
@@ -111,13 +112,14 @@ func TestNamespaceRuleFailureRemainsUnknown(t *testing.T) {
 	if err := syncCommandNamespaces(commandMapFake{"users", &ops, true}, commandMapFake{"namespaces", &ops, false}, current, desired); err == nil {
 		t.Fatal("expected error")
 	}
-	if !reflect.DeepEqual(ops, []string{"users update"}) || len(current) != 0 || len(desired) != 1 {
+	if !reflect.DeepEqual(ops, []string{"users update"}) || len(current) != 1 || len(desired) != 0 || current[99].active {
 		t.Fatalf("published incomplete rules: %v", ops)
 	}
 }
 func TestNamespaceRemovalFailurePreservesPin(t *testing.T) {
 	var ops []string
 	current := map[uint32]*commandNamespace{99: namespaceForTest(t)}
+	current[99].active = true
 	if err := syncCommandNamespaces(commandMapFake{"users", &ops, false}, commandMapFake{"namespaces", &ops, true}, current, map[uint32]*commandNamespace{}); err == nil {
 		t.Fatal("expected error")
 	}
@@ -177,5 +179,69 @@ func TestTruncatedCommandEvent(t *testing.T) {
 	}
 	if event == nil || event.Details["command"] != "long-command-prefix..." || event.Severity != protocol.SeverityHigh {
 		t.Fatalf("incorrect truncated event: %+v", event)
+	}
+}
+
+func TestNamespaceWithoutRootMapping(t *testing.T) {
+	root, users, err := commandNamespaceRules(99, "1000 101000 1\n", []uint32{0, 1000})
+	if err != nil || root != unmappedRootUID || !reflect.DeepEqual(users, []userKey{{99, 101000}}) {
+		t.Fatalf("namespace without root lost policy: root=%d users=%v err=%v", root, users, err)
+	}
+	state := namespaceForTest(t)
+	state.root, state.users = root, users
+	var ops []string
+	namespaces := &namespacePolicyMapFake{}
+	if err := syncCommandNamespaces(commandMapFake{"users", &ops, false}, namespaces, map[uint32]*commandNamespace{}, map[uint32]*commandNamespace{99: state}); err != nil {
+		t.Fatal(err)
+	}
+	if len(namespaces.values) != 1 || namespaces.values[0].RootUID != unmappedRootUID || !state.active {
+		t.Fatal("namespace without root remained unrestricted")
+	}
+}
+
+func TestNewContainerGraceWithActiveHostNamespace(t *testing.T) {
+	var ops []string
+	mounts := commandMapFake{"mounts", &ops, false}
+	host := namespaceForTest(t)
+	host.active = true
+	current := map[uint32]*commandNamespace{1: host}
+	container := namespaceForTest(t)
+	container.users = nil
+	container.readyAt = time.Time{}
+	before := time.Now()
+	if err := syncCommandNamespaces(nil, mounts, current, map[uint32]*commandNamespace{1: namespaceForTest(t), 2: container}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := container.readyAt
+	if len(ops) != 0 || container.active || deadline.Before(before.Add(150*time.Second)) {
+		t.Fatalf("new container enabled too early: %v %+v", ops, container)
+	}
+	if next, ok := nextCommandActivation(current); !ok || !next.Equal(deadline) {
+		t.Fatal("missing container activation timer")
+	}
+	if err := syncCommandNamespaces(nil, mounts, current, map[uint32]*commandNamespace{1: namespaceForTest(t), 2: namespaceForTest(t)}); err != nil || !container.readyAt.Equal(deadline) {
+		t.Fatal("rescan reset the grace period", err)
+	}
+	if err := activateCommandNamespaces(nil, mounts, current, deadline.Add(-time.Nanosecond)); err != nil || len(ops) != 0 {
+		t.Fatal("container activated before deadline", err)
+	}
+	if err := activateCommandNamespaces(nil, mounts, current, deadline); err != nil || !container.active || !reflect.DeepEqual(ops, []string{"mounts update"}) {
+		t.Fatal("container did not activate at deadline", ops, err)
+	}
+	if _, ok := nextCommandActivation(current); ok {
+		t.Fatal("active container still pending")
+	}
+}
+
+func TestPendingNamespaceRemovedWithoutPublishing(t *testing.T) {
+	state := namespaceForTest(t)
+	state.readyAt = time.Now().Add(namespaceGracePeriod)
+	current := map[uint32]*commandNamespace{99: state}
+	var ops []string
+	if err := syncCommandNamespaces(nil, commandMapFake{"mounts", &ops, false}, current, map[uint32]*commandNamespace{}); err != nil || len(ops) != 0 || len(current) != 0 {
+		t.Fatal("removed pending namespace touched policy", ops, err)
+	}
+	if _, err := state.handle.Stat(); err == nil {
+		t.Fatal("removed namespace pin still open")
 	}
 }

@@ -45,6 +45,7 @@ type UserCommandControllerUserKey struct {
 const (
 	UserCommandControllerMapCommands               = "commands"
 	UserCommandControllerMapEvents                 = "events"
+	UserCommandControllerMapMounts                 = "mounts"
 	UserCommandControllerMapNamespaces             = "namespaces"
 	UserCommandControllerMapSettings               = "settings"
 	UserCommandControllerMapUsers                  = "users"
@@ -102,6 +103,7 @@ type UserCommandControllerProgramSpecs struct {
 type UserCommandControllerMapSpecs struct {
 	Commands   *ebpf.MapSpec `ebpf:"commands"`
 	Events     *ebpf.MapSpec `ebpf:"events"`
+	Mounts     *ebpf.MapSpec `ebpf:"mounts"`
 	Namespaces *ebpf.MapSpec `ebpf:"namespaces"`
 	Settings   *ebpf.MapSpec `ebpf:"settings"`
 	Users      *ebpf.MapSpec `ebpf:"users"`
@@ -135,6 +137,7 @@ func (o *UserCommandControllerObjects) Close() error {
 type UserCommandControllerMaps struct {
 	Commands   *ebpf.Map `ebpf:"commands"`
 	Events     *ebpf.Map `ebpf:"events"`
+	Mounts     *ebpf.Map `ebpf:"mounts"`
 	Namespaces *ebpf.Map `ebpf:"namespaces"`
 	Settings   *ebpf.Map `ebpf:"settings"`
 	Users      *ebpf.Map `ebpf:"users"`
@@ -144,6 +147,7 @@ func (m *UserCommandControllerMaps) Close() error {
 	return _UserCommandControllerClose(
 		m.Commands,
 		m.Events,
+		m.Mounts,
 		m.Namespaces,
 		m.Settings,
 		m.Users,

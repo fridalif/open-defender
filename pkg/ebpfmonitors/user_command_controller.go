@@ -30,10 +30,13 @@ import (
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -output-dir=gobpfs -target bpfel UserCommandController bpf/user_command_controller.bpf.c -- -I./bpf -O2 -Wall -g
 const (
-	modeLogger    uint32 = 1
-	modeBlocker   uint32 = 2
-	blockPositive uint32 = 1
-	blockNegative uint32 = 2
+	modeLogger            uint32 = 1
+	modeBlocker           uint32 = 2
+	blockPositive         uint32 = 1
+	blockNegative         uint32 = 2
+	namespaceScanInterval        = 150 * time.Second
+	namespaceGracePeriod         = 150 * time.Second
+	unmappedRootUID       uint32 = ^uint32(0)
 )
 
 type execEvent struct {
@@ -51,11 +54,13 @@ var commandNamespaceGeneration atomic.Uint64
 
 type userKey struct{ UserNS, HostUID uint32 }
 
-// A namespace FD prevents its inode from being reused while policy is installed.
+// Pin both waiting and active namespaces to prevent inode reuse.
 type commandNamespace struct {
-	handle *os.File
-	root   uint32
-	users  []userKey
+	handle  *os.File
+	root    uint32
+	users   []userKey
+	readyAt time.Time
+	active  bool
 }
 
 type commandRuleMap interface {
@@ -69,13 +74,14 @@ type commandObjects struct {
 	Program    *ebpf.Program `ebpf:"user_command_controller"`
 	Users      *ebpf.Map     `ebpf:"users"`
 	Namespaces *ebpf.Map     `ebpf:"namespaces"`
+	Mounts     *ebpf.Map     `ebpf:"mounts"`
 	Commands   *ebpf.Map     `ebpf:"commands"`
 	Settings   *ebpf.Map     `ebpf:"settings"`
 	Events     *ebpf.Map     `ebpf:"events"`
 }
 
 func (o *commandObjects) Close() {
-	for _, m := range []*ebpf.Map{o.Users, o.Namespaces, o.Commands, o.Settings, o.Events} {
+	for _, m := range []*ebpf.Map{o.Users, o.Namespaces, o.Mounts, o.Commands, o.Settings, o.Events} {
 		if m != nil {
 			_ = m.Close()
 		}
@@ -97,6 +103,17 @@ func NewUserCommandControllerMonitor(ctx context.Context, cfg config.UserCommand
 }
 
 func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*commandNamespace, error) {
+	return discoverCommandContexts(ctx, uids, false)
+}
+
+// Docker gives each container a mount namespace even when userns is shared
+// with the host. Its independent readiness prevents host policy from applying
+// to a container before that container's setup grace period has expired.
+func discoverCommandContexts(ctx context.Context, uids []uint32, mounts bool) (map[uint32]*commandNamespace, error) {
+	namespacePath := "ns/user"
+	if mounts {
+		namespacePath = "ns/mnt"
+	}
 	dirs, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -117,7 +134,7 @@ func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*
 			continue
 		}
 		base := fmt.Sprintf("/proc/self/fd/%d", procFD.Fd())
-		handle, err := os.Open(filepath.Join(base, "ns/user"))
+		handle, err := os.Open(filepath.Join(base, namespacePath))
 		if err != nil {
 			_ = procFD.Close()
 			continue
@@ -140,6 +157,11 @@ func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*
 			_ = procFD.Close()
 			continue
 		}
+		if mounts {
+			states[ns] = &commandNamespace{handle: handle}
+			_ = procFD.Close()
+			continue
+		}
 		mapping, err := os.ReadFile(filepath.Join(base, "uid_map"))
 		// Verify that the process did not switch namespaces while reading uid_map.
 		after, statErr := os.Stat(filepath.Join(base, "ns/user"))
@@ -148,29 +170,18 @@ func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*
 			_ = handle.Close()
 			continue
 		}
-		root, found, err := policy.HostUID(0, string(mapping))
-		// Without a root mapping the namespace remains unrestricted.
-		if err != nil || !found {
+		// An empty uid_map can still be initialized. Once nonempty, Linux
+		// permits no further writes, so the cached root exemption is stable.
+		if len(bytes.Fields(mapping)) == 0 {
 			_ = handle.Close()
 			continue
 		}
-		state := &commandNamespace{handle: handle, root: root}
-		valid := true
-		for _, uid := range uids {
-			host, found, err := policy.HostUID(uid, string(mapping))
-			if err != nil {
-				valid = false
-				break
-			}
-			if found {
-				state.users = append(state.users, userKey{ns, host})
-			}
-		}
-		if !valid {
+		root, users, err := commandNamespaceRules(ns, string(mapping), uids)
+		if err != nil {
 			_ = handle.Close()
 			continue
 		}
-		states[ns] = state
+		states[ns] = &commandNamespace{handle: handle, root: root, users: users}
 	}
 	return states, nil
 }
@@ -214,13 +225,23 @@ func (m *userCommandControllerMonitor) Run() error {
 	defer cancel()
 	current := make(map[uint32]*commandNamespace)
 	defer closeNamespaces(current)
+	currentMounts := make(map[uint32]*commandNamespace)
+	defer closeNamespaces(currentMounts)
 	scan := func() error {
 		desired, err := discoverCommandNamespaces(ctx, uids)
 		if err != nil {
 			return err
 		}
 		defer closeNamespaces(desired)
-		return syncCommandNamespaces(o.Users, o.Namespaces, current, desired)
+		if err := syncCommandNamespaces(o.Users, o.Namespaces, current, desired); err != nil {
+			return err
+		}
+		mounts, err := discoverCommandContexts(ctx, nil, true)
+		if err != nil {
+			return err
+		}
+		defer closeNamespaces(mounts)
+		return syncCommandNamespaces(nil, o.Mounts, currentMounts, mounts)
 	}
 	if err := scan(); err != nil {
 		return fmt.Errorf("user_command_controller namespaces: %w", err)
@@ -257,8 +278,20 @@ func (m *userCommandControllerMonitor) Run() error {
 	defer func() { cancel(); wg.Wait() }()
 	go func() {
 		defer wg.Done()
-		ticker := time.NewTicker(time.Minute)
+		ticker := time.NewTicker(namespaceScanInterval)
 		defer ticker.Stop()
+		activationTimer := time.NewTimer(namespaceGracePeriod)
+		defer activationTimer.Stop()
+		var activationC <-chan time.Time
+		resetActivation := func() {
+			activationTimer.Stop()
+			activationC = nil
+			if deadline, ok := nextCommandActivation(current, currentMounts); ok {
+				activationTimer.Reset(time.Until(deadline))
+				activationC = activationTimer.C
+			}
+		}
+		resetActivation()
 		for {
 			select {
 			case <-ctx.Done():
@@ -270,6 +303,17 @@ func (m *userCommandControllerMonitor) Run() error {
 					log.Printf("user_command_controller namespace update failed; detaching: %v", err)
 					cancel()
 				}
+				resetActivation()
+			case <-activationC:
+				if err := activateCommandNamespaces(o.Users, o.Namespaces, current, time.Now()); err != nil {
+					log.Printf("user_command_controller namespace activation failed; detaching: %v", err)
+					cancel()
+				}
+				if err := activateCommandNamespaces(nil, o.Mounts, currentMounts, time.Now()); err != nil {
+					log.Printf("user_command_controller container activation failed; detaching: %v", err)
+					cancel()
+				}
+				resetActivation()
 			}
 		}
 	}()
@@ -305,12 +349,14 @@ func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired ma
 		if _, exists := desired[ns]; exists {
 			continue
 		}
-		if err := namespaces.Delete(ns); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-			return err
-		}
-		for _, key := range state.users {
-			if err := users.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		if state.active {
+			if err := namespaces.Delete(ns); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 				return err
+			}
+			for _, key := range state.users {
+				if err := users.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+					return err
+				}
 			}
 		}
 		_ = state.handle.Close()
@@ -318,6 +364,20 @@ func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired ma
 	}
 	for ns, state := range desired {
 		if _, exists := current[ns]; exists {
+			continue
+		}
+		if state.readyAt.IsZero() {
+			state.readyAt = time.Now().Add(namespaceGracePeriod)
+		}
+		current[ns] = state
+		delete(desired, ns)
+	}
+	return activateCommandNamespaces(users, namespaces, current, time.Now())
+}
+
+func activateCommandNamespaces(users, namespaces commandRuleMap, current map[uint32]*commandNamespace, now time.Time) error {
+	for ns, state := range current {
+		if state.active || now.Before(state.readyAt) {
 			continue
 		}
 		for _, key := range state.users {
@@ -332,11 +392,44 @@ func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired ma
 		if err := namespaces.Update(ns, namespacePolicy{RootUID: state.root, Generation: generation}, ebpf.UpdateAny); err != nil {
 			return err
 		}
-		// Transfer ownership; the caller closes any unconsumed FDs.
-		current[ns] = state
-		delete(desired, ns)
+		state.active = true
 	}
 	return nil
+}
+
+func nextCommandActivation(groups ...map[uint32]*commandNamespace) (time.Time, bool) {
+	var earliest time.Time
+	for _, current := range groups {
+		for _, state := range current {
+			if !state.active && (earliest.IsZero() || state.readyAt.Before(earliest)) {
+				earliest = state.readyAt
+			}
+		}
+	}
+	return earliest, !earliest.IsZero()
+}
+
+func commandNamespaceRules(ns uint32, mapping string, uids []uint32) (uint32, []userKey, error) {
+	root, found, err := policy.HostUID(0, mapping)
+	if err != nil {
+		return 0, nil, err
+	}
+	if !found {
+		// (uid_t)-1 cannot identify a real user. This namespace has no root
+		// mapping, but its other users must still be subject to policy.
+		root = unmappedRootUID
+	}
+	var users []userKey
+	for _, uid := range uids {
+		host, found, err := policy.HostUID(uid, mapping)
+		if err != nil {
+			return 0, nil, err
+		}
+		if found {
+			users = append(users, userKey{UserNS: ns, HostUID: host})
+		}
+	}
+	return root, users, nil
 }
 
 func decodeCommandEvent(sample []byte, mode string) (*protocol.AlertEvent, error) {
