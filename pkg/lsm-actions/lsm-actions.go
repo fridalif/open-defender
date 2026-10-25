@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-type LSMActionsI interface {
+type LSMActions interface {
 	CheckIsActive() (bool, error)
 	WriteLSMHelperMessage()
 }
@@ -14,7 +14,7 @@ type LSMActionsI interface {
 type lsmActions struct {
 }
 
-func NewLSMActions() LSMActionsI {
+func NewLSMActions() LSMActions {
 	return &lsmActions{}
 }
 

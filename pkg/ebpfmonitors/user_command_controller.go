@@ -1,6 +1,11 @@
 package ebpfmonitors
 
-import "github.com/cilium/ebpf"
+import (
+	"context"
+	"open-defender/pkg/config"
+
+	"github.com/cilium/ebpf"
+)
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -output-dir=gobpfs -target bpfel UserCommandController bpf/user_command_controller.bpf.c -- -I./bpf -O2 -Wall -g
 const (
@@ -65,4 +70,30 @@ func (o *objects) Close() {
 	if o.Events != nil {
 		o.Events.Close()
 	}
+}
+
+type UserCommandControllerMonitor interface {
+	Run() error
+}
+
+type userCommandControllerMonitor struct {
+	ctx         context.Context
+	cancel      context.CancelFunc
+	cfg         config.UserCommandExecutionController
+	logFunction func(message string)
+}
+
+func NewUserCommandControllerMonitor(ctx context.Context, cancel context.CancelFunc, cfg config.UserCommandExecutionController, logFn func(message string, isNewBan bool)) UserCommandControllerMonitor {
+	return &userCommandControllerMonitor{
+		ctx:    ctx,
+		cancel: cancel,
+		cfg:    cfg,
+		logFunction: func(message string) {
+			logFn(message, true)
+		},
+	}
+}
+
+func (uccm *userCommandControllerMonitor) Run() error {
+	return nil
 }
