@@ -146,6 +146,23 @@ func (a *app) Status() error {
 		disabled = append(disabled, "resource_monitor")
 	}
 
+	network := cfg.EbpfMonitors.NetworkAntirecon
+	if network.Mode == "" || network.Mode == "disabled" {
+		disabled = append(disabled, "network_antirecon")
+	} else {
+		tries := fmt.Sprintf("%d ports in %ds", network.PortsCount, network.WindowSeconds)
+		if network.Mode == "blocker" {
+			tries += fmt.Sprintf(", ban %ds", network.BanSeconds)
+		}
+		fmt.Fprintf(writer, "network_antirecon\t%s\tebpf\t-\t%s\n", network.Mode, tries)
+	}
+	command := cfg.EbpfMonitors.UserCommandController
+	if command.Mode == "" || command.Mode == "disabled" {
+		disabled = append(disabled, "user_command_controller")
+	} else {
+		fmt.Fprintf(writer, "user_command_controller\t%s\tebpf\t-\t-\n", command.Mode)
+	}
+
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("app.Status() -> %w: %v", ErrWriteStatus, err)
 	}

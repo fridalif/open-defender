@@ -90,6 +90,8 @@ struct {
 SEC("lsm/bprm_check_security")
 int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
 {
+    if (prior_ret > 0 || prior_ret < -4095)
+        return -EPERM;
     if (prior_ret != 0)
         return prior_ret;
 

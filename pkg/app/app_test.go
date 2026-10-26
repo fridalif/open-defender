@@ -2,8 +2,10 @@ package app_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +128,53 @@ func TestStatus(t *testing.T) {
 	a := app.NewAppForTest(disabledConfig(), writeConfig(t, disabledConfig()), inst, upd)
 	if err := a.Status(); err != nil {
 		t.Fatalf("Status() error: %v", err)
+	}
+}
+
+func TestStatusEBPFMonitors(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			inst, upd := mocksFor(t)
+			c := disabledConfig()
+			c.EbpfMonitors.NetworkAntirecon.Mode = "disabled"
+			c.EbpfMonitors.UserCommandController.Mode = "disabled"
+			if enabled {
+				c.EbpfMonitors.NetworkAntirecon.Mode = "blocker"
+				c.EbpfMonitors.NetworkAntirecon.PortsCount = 7
+				c.EbpfMonitors.NetworkAntirecon.WindowSeconds = 30
+				c.EbpfMonitors.NetworkAntirecon.BanSeconds = 60
+				c.EbpfMonitors.UserCommandController.Mode = "logger"
+			}
+			a := app.NewAppForTest(disabledConfig(), writeConfig(t, c), inst, upd)
+			output, err := os.CreateTemp(t.TempDir(), "status")
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := os.Stdout
+			os.Stdout = output
+			err = a.Status()
+			os.Stdout = original
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := output.Close(); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(output.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := string(data)
+			if enabled {
+				for _, want := range []string{"network_antirecon", "user_command_controller", "7 ports in 30s, ban 60s", "logger", "ebpf"} {
+					if !strings.Contains(status, want) {
+						t.Errorf("status missing %q: %s", want, status)
+					}
+				}
+			} else if !strings.Contains(status, "network_antirecon, user_command_controller") {
+				t.Errorf("disabled monitors missing: %s", status)
+			}
+		})
 	}
 }
 
