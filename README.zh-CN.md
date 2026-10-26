@@ -17,7 +17,7 @@
 - [x] 资源监控；发生过载时显示资源占用最高的进程
 - [ ] eBPF 监控
   - [x] 网络监控（防侦察）
-  - [ ] 命令执行（可封禁特定用户）
+  - [x] 命令执行（可封禁特定用户）
   - [ ] 新的内核模块（可封禁）
   - [ ] 新的 Crontab（可封禁）
   - [ ] 新的服务（可封禁）
@@ -116,6 +116,63 @@ sudo open-defender -u
 ```sh
 sudo open-defender -r
 ```
+
+## 命令执行控制
+
+`ebpf_monitors.user_command_controller` 通过 BPF LSM（`bprm_check_security`）检查执行尝试。需要启用 BTF 和 BPF LSM 的 Linux，代理必须以 root 身份在宿主机初始用户命名空间运行。控制器启动或更新失败时会记录错误并卸载控制器，其他监控器继续运行。
+
+```yaml
+ebpf_monitors:
+  user_command_controller:
+    mode: logger
+    block_type: positive
+    target_users_ids: ["1000"]
+    target_commands: ["curl", "wget"]
+```
+
+- `mode` 可选 `disabled`、`logger` 或 `blocker`。省略该配置段会禁用控制器，重新加载配置时也一样。
+- UID 相对于进程的用户命名空间。命令按可执行文件 basename 匹配，最多 63 字节；配置中的路径会转换为 basename。不产生独立 exec 的 shell 内置命令不受监控。
+- 两个列表均非空时，用户和命令必须同时匹配。空列表不限制对应条件；两个列表都为空时不匹配任何尝试。
+- `positive` 选择匹配列表的尝试；`negative` 选择其余尝试。因此两个列表都为空时，`negative` 选择所有尝试，但下述无条件例外仍然有效。
+- `logger` 允许选中的尝试并产生 **严重（4）** 事件，不确认执行是否成功。`blocker` 以 `EPERM` 拒绝选中的尝试并产生 **高（3）** 事件。其他尝试不产生事件。
+
+**Root 始终排除，且不产生事件：** 宿主机或容器用户命名空间中的 real UID 或 effective UID 为 0 时，无论配置如何都绕过策略。在列表中添加 UID 0 不会取消此例外。
+
+未知的用户或挂载命名空间允许所有尝试，不产生事件。发现扫描在附加前运行，之后每 150 秒执行一次，扫描不会重叠。每个新发现的命名空间还会获得 150 秒的配置时间，包括代理启动时已存在的命名空间。每个 Docker 容器通过独立的挂载命名空间获得自己的等待期，即使它共享宿主机的用户命名空间。两个命名空间都就绪后才启用策略。在等待和策略生效期间持有命名空间描述符，防止编号被重复使用。不包含 UID 0 映射的非空 UID map 仍对其他用户应用策略；尚未初始化的空 UID map 在发现最终映射前保持不受限制。Root 始终排除。
+
+在支持 BPF LSM 和用户命名空间的 Linux 测试主机上运行：
+
+```sh
+sudo go test -tags integration ./pkg/ebpfmonitors -run '^TestCommandControllerLSM
+
+代理与导出器端点通过 WebSocket 交换的消息、信封格式、加密方式及全部操作均记录在 [CLIENT.zh-CN.md](./CLIENT.zh-CN.md) 中。
+
+## 构建
+
+需要 Go 1.25+ 和 C 编译器（`gcc`），因为 SQLite 驱动程序是 cgo 包。
+
+将二进制文件构建到 `build/open-defender`：
+
+```sh
+make build
+```
+
+### 测试
+
+```sh
+make test          # 运行全部测试
+make test-verbose  # 同上，并输出每个测试的结果
+make test-race     # 在竞态检测器下运行测试
+make cover         # 运行测试并输出按函数统计的覆盖率报告
+make cover-html    # 同上，然后在浏览器中打开覆盖率报告
+make vet           # 运行 go vet
+make check         # go vet + 测试
+make clean         # 删除构建产物并清除测试缓存
+```
+ -v
+```
+
+集成测试仅在其私有用户命名空间启用策略，验证未知命名空间、阻止、logger 事件及映射到非零宿主机 UID 的容器 root。仅通过编译不能证明 LSM 行为正确。
 
 ## 代理协议
 

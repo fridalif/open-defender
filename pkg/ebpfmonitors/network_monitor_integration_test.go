@@ -1,4 +1,4 @@
-//go:build integration
+//go:build linux && integration
 
 package ebpfmonitors
 
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"open-defender/pkg/config"
-	"open-defender/pkg/ebpfmonitors/gobpfs"
+	gobpfs "open-defender/pkg/ebpfmonitors/gobpfs"
 
 	"github.com/cilium/ebpf/rlimit"
 )

@@ -24,18 +24,21 @@ const (
 )
 
 const (
-	SourceSSHMonitor       = "ssh_monitor"
-	SourceWebBruteMonitor  = "web_brute_monitor"
-	SourceWebReconMonitor  = "web_recon_monitor"
-	SourceDatabaseMonitor  = "database_monitor"
-	SourceNetworkAntirecon = "network_antirecon"
-	SourceResourceMonitor  = "resource_monitor"
-	SourceIPBan            = "ip_ban"
+	SourceSSHMonitor            = "ssh_monitor"
+	SourceWebBruteMonitor       = "web_brute_monitor"
+	SourceWebReconMonitor       = "web_recon_monitor"
+	SourceDatabaseMonitor       = "database_monitor"
+	SourceNetworkAntirecon      = "network_antirecon"
+	SourceResourceMonitor       = "resource_monitor"
+	SourceIPBan                 = "ip_ban"
+	SourceUserCommandController = "user_command_controller"
 )
 
 const (
-	SeverityWarning = "warning"
-	SeverityAlert   = "alert"
+	SeverityCritical = "critical"
+	SeverityHigh     = "high"
+	SeverityWarning  = "warning"
+	SeverityAlert    = "alert"
 )
 
 const (

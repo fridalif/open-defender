@@ -5,6 +5,7 @@ import (
 	"log"
 	"open-defender/pkg/app"
 	"open-defender/pkg/config"
+	lsmactions "open-defender/pkg/lsm-actions"
 	"os"
 )
 
@@ -48,10 +49,15 @@ func run(args []string, newApp func() app.App, isRoot bool) int {
 		return 1
 	}
 
+	lsmActions := lsmactions.NewLSMActions()
 	if runConfig.Update {
 		if err := application.Update(); err != nil {
 			log.Println(err)
 			return 1
+		}
+		isActive, err := lsmActions.CheckIsActive()
+		if err != nil || !isActive {
+			lsmActions.WriteLSMHelperMessage()
 		}
 		return 0
 	}
@@ -73,6 +79,10 @@ func run(args []string, newApp func() app.App, isRoot bool) int {
 		if err := application.Install(); err != nil {
 			log.Println(err)
 			return 1
+		}
+		isActive, err := lsmActions.CheckIsActive()
+		if err != nil || !isActive {
+			lsmActions.WriteLSMHelperMessage()
 		}
 		return 0
 	}

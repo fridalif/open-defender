@@ -116,6 +116,14 @@ func (mh *monitorHub) runCycle() {
 			log.Println(err.Error())
 		}
 	})
+	mh.wg.Go(func() {
+		controller := ebpfmonitors.NewUserCommandControllerMonitor(mh.ctx, mh.cfg.EbpfMonitors.UserCommandController, func(event protocol.AlertEvent) {
+			mh.alert(journalInfo, event, func() {})
+		})
+		if err := controller.Run(); err != nil {
+			log.Printf("user_command_controller: %v", err)
+		}
+	})
 	if mh.cfg.Exporter.Enabled && mh.exportChan != nil {
 		exporter := connector.New(mh.cfg, mh.configPath, mh.ctx, mh.cancel, mh.exportChan, mh.restart)
 		mh.wg.Go(exporter.Run)

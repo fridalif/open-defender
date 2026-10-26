@@ -495,3 +495,49 @@ func stubMarshalYAML(t *testing.T, fn func(any) ([]byte, error)) {
 	marshalYAML = fn
 	t.Cleanup(func() { marshalYAML = original })
 }
+
+func TestUserCommandControllerValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cfg   UserCommandExecutionController
+		valid bool
+	}{
+		{"legacy absent", UserCommandExecutionController{}, true},
+		{"disabled", UserCommandExecutionController{Mode: "disabled"}, true},
+		{"negative empty", UserCommandExecutionController{Mode: "blocker", BlockType: "negative"}, true},
+		{"root in targets", UserCommandExecutionController{Mode: "logger", BlockType: "positive", TargetUsersIDs: []string{"0", "1000"}}, true},
+		{"bad mode", UserCommandExecutionController{Mode: "invalid"}, false},
+		{"bad block type", UserCommandExecutionController{Mode: "logger", BlockType: "invalid"}, false},
+		{"bad UID", UserCommandExecutionController{Mode: "logger", BlockType: "positive", TargetUsersIDs: []string{"-1"}}, false},
+		{"bad command", UserCommandExecutionController{Mode: "logger", BlockType: "positive", TargetCommands: []string{""}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.cfg.Validate(); (err == nil) != tc.valid {
+				t.Fatalf("Validate() = %v, valid=%v", err, tc.valid)
+			}
+		})
+	}
+}
+
+func TestRemovedUserCommandControllerDisablesOnReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	c := New()
+	if err := os.WriteFile(path, []byte("ebpf_monitors:\n  user_command_controller:\n    mode: blocker\n    block_type: negative\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadConfigReadOnly(path); err != nil {
+		t.Fatal(err)
+	}
+	if c.EbpfMonitors.UserCommandController.Mode != "blocker" {
+		t.Fatal("controller not enabled")
+	}
+	if err := os.WriteFile(path, []byte("ebpf_monitors: {}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadConfigReadOnly(path); err != nil {
+		t.Fatal(err)
+	}
+	if c.EbpfMonitors.UserCommandController.Mode != "disabled" {
+		t.Fatal("removed controller remained active")
+	}
+}

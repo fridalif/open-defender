@@ -18,7 +18,6 @@
 
 由于密钥对按会话生成，重新连接后上一会话的所有消息都无法解密；磁盘上没有长期有效的代理密钥。
 
-> 代理**未经过身份验证**：`user_id` 和 `config_id` 是标识符而非密钥。任何持有 `config.yaml` 副本的人都可冒充此代理。请参见 TODO.md 中的“Аутентификация агента”。
 
 ---
 
@@ -159,10 +158,15 @@
 | `web_recon_monitor` | 同上，但针对不存在路径的请求 | 同上 |
 | `database_monitor` | 同上，但针对数据库登录失败 | 同上 |
 | `network_antirecon` | eBPF 发现端口扫描或访问黑名单端口 | 无 |
+| `user_command_controller` | logger 中被策略选中的执行尝试，或 blocker 中被拒绝的执行尝试 | `severity`（`critical` 或 `high`），执行详情见下文 |
 | `resource_monitor` | CPU / RAM / 流量 / 磁盘越过阈值 | `severity`（`warning` 或 `alert`）、`details.metric`、`details.value`、`details.unit`、`details.limit` |
 | `ip_ban` | IP 确实已被防火墙封禁 | 无 |
 
-`severity` 仅会为 `resource_monitor` 设置。仪表板的严重性级别由连接器分配，而非代理。
+`severity` 用于 `resource_monitor`（`warning` / `alert`）和 `user_command_controller`（`critical` / `high`）。仪表板的数字严重性级别由连接器分配。
+
+#### 命令执行事件
+
+对于 `source=user_command_controller`，`details` 包含 `result`（`logged` / `blocked`）、`command`（basename；长文件名会被截断并添加 `...` 后缀）、`uid` 和 `effective_uid`（宿主机 UID）、`user_namespace`、`pid`（进程 ID）、`tid`（线程 ID）和 `mode`（`logger` / `blocker`）。`logged` 表示执行尝试，不确认执行成功。连接器根据 `details.result` 将 `logged` 映射为 **严重（4）**，将 `blocked` 映射为 **高（3）**，不依赖之后的配置变化。Root、未知命名空间以及未被策略选中的尝试不产生事件。
 
 ---
 
