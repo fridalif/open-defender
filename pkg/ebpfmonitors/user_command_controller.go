@@ -54,7 +54,6 @@ var commandNamespaceGeneration atomic.Uint64
 
 type userKey struct{ UserNS, HostUID uint32 }
 
-// Pin both waiting and active namespaces to prevent inode reuse.
 type commandNamespace struct {
 	handle  *os.File
 	root    uint32
@@ -106,9 +105,6 @@ func discoverCommandNamespaces(ctx context.Context, uids []uint32) (map[uint32]*
 	return discoverCommandContexts(ctx, uids, false)
 }
 
-// Docker gives each container a mount namespace even when userns is shared
-// with the host. Its independent readiness prevents host policy from applying
-// to a container before that container's setup grace period has expired.
 func discoverCommandContexts(ctx context.Context, uids []uint32, mounts bool) (map[uint32]*commandNamespace, error) {
 	namespacePath := "ns/user"
 	if mounts {
@@ -128,7 +124,6 @@ func discoverCommandContexts(ctx context.Context, uids []uint32, mounts bool) (m
 			continue
 		}
 		proc := filepath.Join("/proc", dir.Name())
-		// Keep the proc directory open so PID reuse cannot mix two processes.
 		procFD, err := os.Open(proc)
 		if err != nil {
 			continue
@@ -163,15 +158,12 @@ func discoverCommandContexts(ctx context.Context, uids []uint32, mounts bool) (m
 			continue
 		}
 		mapping, err := os.ReadFile(filepath.Join(base, "uid_map"))
-		// Verify that the process did not switch namespaces while reading uid_map.
 		after, statErr := os.Stat(filepath.Join(base, "ns/user"))
 		_ = procFD.Close()
 		if err != nil || statErr != nil || !os.SameFile(st, after) {
 			_ = handle.Close()
 			continue
 		}
-		// An empty uid_map can still be initialized. Once nonempty, Linux
-		// permits no further writes, so the cached root exemption is stable.
 		if len(bytes.Fields(mapping)) == 0 {
 			_ = handle.Close()
 			continue
@@ -193,7 +185,6 @@ func (m *userCommandControllerMonitor) Run() error {
 	if err := m.cfg.Validate(); err != nil {
 		return err
 	}
-	// uid_map must be read relative to the initial host user namespace.
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("user_command_controller requires host root")
 	}
@@ -212,6 +203,10 @@ func (m *userCommandControllerMonitor) Run() error {
 	var o commandObjects
 	defer o.Close()
 	if err := bpf.LoadUserCommandControllerObjects(&o, nil); err != nil {
+		var verifierErr *ebpf.VerifierError
+		if errors.As(err, &verifierErr) {
+			return fmt.Errorf("user_command_controller load: %w\nverifier log: %+v", err, verifierErr)
+		}
 		return fmt.Errorf("user_command_controller load: %w", err)
 	}
 	for _, command := range commands {
@@ -274,7 +269,6 @@ func (m *userCommandControllerMonitor) Run() error {
 	defer attached.Close()
 	var wg sync.WaitGroup
 	wg.Add(1)
-	// Join before closing maps/namespace FDs.
 	defer func() { cancel(); wg.Wait() }()
 	go func() {
 		defer wg.Done()
@@ -341,9 +335,6 @@ func closeNamespaces(states map[uint32]*commandNamespace) {
 		_ = state.handle.Close()
 	}
 }
-
-// Remove readiness first; publish it last. A failed update never exposes
-// incomplete rules to the enforcing hook. The caller detaches on map errors.
 func syncCommandNamespaces(users, namespaces commandRuleMap, current, desired map[uint32]*commandNamespace) error {
 	for ns, state := range current {
 		if _, exists := desired[ns]; exists {
@@ -415,8 +406,6 @@ func commandNamespaceRules(ns uint32, mapping string, uids []uint32) (uint32, []
 		return 0, nil, err
 	}
 	if !found {
-		// (uid_t)-1 cannot identify a real user. This namespace has no root
-		// mapping, but its other users must still be subject to policy.
 		root = unmappedRootUID
 	}
 	var users []userKey
