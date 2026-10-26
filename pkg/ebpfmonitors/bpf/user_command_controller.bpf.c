@@ -90,10 +90,8 @@ struct {
 SEC("lsm/bprm_check_security")
 int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
 {
-    if (prior_ret > 0 || prior_ret < -4095)
-        return -EPERM;
     if (prior_ret != 0)
-        return prior_ret;
+        return -EPERM;
 
     __u32 zero = 0;
     const struct policy_config *cfg = bpf_map_lookup_elem(&settings, &zero);
@@ -145,8 +143,6 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
     if (!would_block)
         return 0;
 
-    // An in-flight hook may have observed readiness before users were removed.
-    // Only enforce a decision made entirely within the same published policy.
     ns = bpf_map_lookup_elem(&namespaces, &uk.userns_inum);
     if (!ns || ns->generation != generation)
         return 0;
@@ -169,6 +165,10 @@ int BPF_PROG(user_command_controller, struct linux_binprm *bprm, int prior_ret)
         bpf_ringbuf_submit(evt, 0);
     }
 
-    return blocked ? -EPERM : 0;
+    // Avoid a boolean negation, whose range some verifiers lose at exit.
+    volatile int denied = -EPERM;
+    if (blocked)
+        return denied;
+    return 0;
 }
 
