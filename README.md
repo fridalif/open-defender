@@ -22,7 +22,7 @@ Objectives:
 - [x] Resource Monitor with top'ing proccesses in overloads
 - [ ] eBPF Monitoring
     - [x] Network Monitor (AntiRecon)
-    - [ ] Command Execution (with block for definite users)
+    - [x] Command Execution (with block for definite users)
     - [ ] New Kernel Modules (with block)
     - [ ] New Crontabs (with block)
     - [ ] New Services (with block)
